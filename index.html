@@ -39,6 +39,15 @@ button:disabled{opacity:.6}
 .stale{color:var(--warn)!important}.bn{margin-top:10px;padding-top:8px;border-top:2px solid var(--line)}.bn h3{font-size:13px;color:var(--muted);margin:0 0 4px;font-weight:600}
 .box textarea{min-height:0;font-size:13px;padding:8px}
 small{color:var(--muted);display:block;margin-top:16px;font-size:12px}
+.tabs{display:flex;gap:4px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:4px;margin:12px 0 4px;position:sticky;top:env(safe-area-inset-top);z-index:5}
+.tabs button{flex:1;width:auto;padding:9px 4px;font-size:15px;border-radius:9px;background:none;color:var(--muted);font-weight:600}
+.tabs button[aria-selected=true]{background:var(--accent);color:#fff}
+.panel[hidden]{display:none}
+.soon{color:var(--muted);font-size:15px}.soon ul{padding-left:20px;margin:8px 0 0}
+.dbg{margin-top:10px;padding-top:8px;border-top:2px solid var(--line);font-size:13px;color:var(--muted)}
+.dbg summary{cursor:pointer;font-weight:600}
+.dbg table{width:100%;border-collapse:collapse;margin-top:6px}.dbg td{padding:2px 4px;border-top:1px solid var(--line);vertical-align:top}
+.dbg .miss{color:var(--bad)}
 </style>
 </head>
 <body>
@@ -46,15 +55,31 @@ small{color:var(--muted);display:block;margin-top:16px;font-size:12px}
 <h1>Boone Lineups</h1>
 <label for="user">Sleeper username</label>
 <input id="user" type="text" autocapitalize="none" autocorrect="off" autocomplete="username" placeholder="your_username">
+<nav class="tabs" role="tablist">
+<button role="tab" id="tb_lineup" data-tab="lineup" aria-controls="p_lineup">Lineup</button>
+<button role="tab" id="tb_fa" data-tab="fa" aria-controls="p_fa">Free Agents</button>
+<button role="tab" id="tb_weather" data-tab="weather" aria-controls="p_weather">Weather</button>
+</nav>
+<section class="panel" id="p_lineup" role="tabpanel" aria-labelledby="tb_lineup">
 <label>Open each Boone page, copy the list, then tap Paste.</label>
 <div id="boxes"></div>
 <button class="link" id="newweek">Clear all lists (new week)</button>
 <div class="row"><input id="doubt" type="checkbox"><label for="doubt" style="margin:0;color:var(--text)">Allow Doubtful players</label></div>
+<div class="row"><input id="debug" type="checkbox"><label for="debug" style="margin:0;color:var(--text)">Show debug info</label></div>
 <button id="go">Build my lineups</button>
 <div id="status"></div>
 <div id="out"></div>
 <button class="link" id="refresh">Refresh player data</button>
 <small>Sleeper's API is read-only, so make the swaps in the Sleeper app. Unranked players are usually on bye.</small>
+</section>
+<section class="panel" id="p_fa" role="tabpanel" aria-labelledby="tb_fa" hidden>
+<div class="card soon"><h2>Free Agents</h2>Coming soon: best available free agents in each of your leagues, from FantasyPros rankings.
+<ul><li>This week and rest of season</li><li>Filter by league and position</li><li>Highlights players ranked above your weakest starter</li></ul></div>
+</section>
+<section class="panel" id="p_weather" role="tabpanel" aria-labelledby="tb_weather" hidden>
+<div class="card soon"><h2>Weather</h2>Coming soon: game-time conditions for every player in your lineups.
+<ul><li>Indoor / outdoor / retractable roof</li><li>Temperature and wind at kickoff</li><li>Chance of rain or snow</li></ul></div>
+</section>
 </main>
 <script>
 const API="https://api.sleeper.app/v1";
@@ -126,7 +151,8 @@ function lookup(table,p){
   return null;
 }
 
-async function api(path){const r=await fetch(API+path);if(!r.ok)throw new Error(`Sleeper error ${r.status} on ${path}`);return r.json()}
+// fresh=true adds a cache-buster so lineup changes made in the Sleeper app show up immediately
+async function api(path,fresh){const url=API+path+(fresh?(path.includes("?")?"&":"?")+"_="+Date.now():"");const r=await fetch(url,{cache:"no-store"});if(!r.ok)throw new Error(`Sleeper error ${r.status} on ${path}`);return r.json()}
 async function loadPlayers(force){
   const raw=store.get("players_v1");
   if(!force&&raw){try{const o=JSON.parse(raw);if(Date.now()-o.ts<12*3600e3)return o.data}catch(e){}}
@@ -148,9 +174,10 @@ function fk(c,slot){
   if(c.rp!==Infinity)return[1,c.rp,cur];
   return[2,0,cur];
 }
-function candidates(roster,players,ranks,allowDoubt){
+const realIds=a=>(a||[]).filter(x=>x&&x!=="0");
+function candidates(roster,starters,players,ranks,allowDoubt){
   const benchOnly=new Set([...(roster.reserve||[]),...(roster.taxi||[])]);
-  const cur=new Set((roster.starters||[]).filter(x=>x&&x!=="0"));
+  const cur=new Set(realIds(starters));
   const out=[];
   for(const id of roster.players||[]){
     if(benchOnly.has(id))continue;const p=players[id];if(!p)continue;
@@ -173,32 +200,47 @@ function build(slots,cands){
   return res;
 }
 
-function render(lg,roster,players,ranks,allowDoubt){
+function render(lg,roster,cur,players,ranks,opts){
+  const {starters,src}=cur;
   const slots=lg.roster_positions.filter(p=>!NON.has(p));
-  const cands=candidates(roster,players,ranks,allowDoubt),line=build(slots,cands),byId=Object.fromEntries(cands.map(c=>[c.id,c]));
+  const cands=candidates(roster,starters,players,ranks,opts.allowDoubt),line=build(slots,cands),byId=Object.fromEntries(cands.map(c=>[c.id,c]));
   let h=`<div class="card"><h2>${esc(lg.name)}</h2>`;
   slots.forEach((s,i)=>{const c=line[i];
     if(!c){h+=`<div class="slot"><span class="s">${esc(s)}</span><span>Nobody eligible</span><span></span></div>`;return}
     const notes=[];if(c.rp===Infinity&&(ranks[c.pos]||(["RB","WR","TE"].includes(c.pos)&&ranks.FLEX)))notes.push("UNRANKED (bye?)");if(c.inj)notes.push(c.inj);
     h+=`<div class="slot"><span class="s">${esc(s.replace("_"," "))}</span><span>${esc(c.name)} <span class="r">${esc(c.pos)} ${esc(c.team||"")}</span>${notes.length?`<div class="n">${esc(notes.join(", "))}</div>`:""}</span><span class="r">${c.rp===Infinity?"--":"#"+c.rp}</span></div>`});
-  const nw=new Set(line.filter(Boolean).map(c=>c.id)),old=new Set((roster.starters||[]).filter(x=>x&&x!=="0"));
+  const nw=new Set(line.filter(Boolean).map(c=>c.id)),old=new Set(realIds(starters));
   const hasL=c=>ranks[c.pos]||(["RB","WR","TE"].includes(c.pos)&&ranks.FLEX);
   const tg=c=>c.out?` (${c.inj||"out"})`:!c.pos||!hasL(c)?"":c.rp===Infinity?" (unranked)":` (#${c.rp})`;
   const byName=(a,b)=>a.name.localeCompare(b.name);
   const starts=[...nw].filter(i=>!old.has(i)).map(i=>byId[i]).sort(byName);
-  const sits=[...old].filter(i=>!nw.has(i)).map(i=>byId[i]||{name:players[i]?.n||i}).sort(byName);
+  const sits=[...old].filter(i=>!nw.has(i)).map(i=>byId[i]||{name:players[i]?.n||`Unknown player (${i})`}).sort(byName);
   h+=`<div class="swaps">`;
   if(!starts.length&&!sits.length)h+=`<div class="ok">No changes. Your lineup already matches Boone.</div>`;
   else{starts.forEach(c=>h+=`<div><span class="start">START</span> ${esc(c.name)}${esc(tg(c))}</div>`);sits.forEach(c=>h+=`<div><span class="sit">SIT</span> ${esc(c.name)}${esc(tg(c))}</div>`)}
   h+=`</div>`;
   const bench=cands.filter(c=>!nw.has(c.id)).sort((a,b)=>a.rp===b.rp?a.name.localeCompare(b.name):a.rp<b.rp?-1:1);
   if(bench.length)h+=`<div class="bn"><h3>Bench</h3>`+bench.map(c=>`<div class="slot"><span class="s">BN</span><span>${esc(c.name)} <span class="r">${esc(c.pos)} ${esc(c.team||"")}</span>${c.inj?`<div class="n">${esc(c.inj)}</div>`:""}</span><span class="r">${c.rp===Infinity?"--":"#"+c.rp}</span></div>`).join("")+`</div>`;
+  if(opts.debug)h+=debugBlock(slots,starters,line,src,players,byId);
   return h+`</div>`;
+}
+function debugBlock(slots,starters,line,src,players,byId){
+  const nm=id=>!id||id==="0"?"(empty)":byId[id]?.name||players[id]?.n||null;
+  const cell=id=>{const n=nm(id);return n==null?`<span class="miss">missing from player data (${esc(id)})</span>`:`${esc(n)} <span class="r">${esc(id||"")}</span>`};
+  let h=`<details class="dbg" open><summary>Debug</summary><div>Current starters from: ${esc(src)}</div><table><tr><td>Slot</td><td>Sleeper now</td><td>Suggested</td></tr>`;
+  slots.forEach((s,i)=>{h+=`<tr><td>${esc(s)}</td><td>${cell((starters||[])[i])}</td><td>${line[i]?cell(line[i].id):"(none)"}</td></tr>`});
+  return h+`</table></details>`;
+}
+// Week-specific starters from matchups are the most accurate; fall back to the roster's starters
+function currentStarters(roster,matchups,week){
+  const m=Array.isArray(matchups)?matchups.find(x=>x.roster_id===roster.roster_id):null;
+  if(m&&Array.isArray(m.starters)&&m.starters.length)return{starters:m.starters,src:`week ${week} matchup`};
+  return{starters:roster.starters||[],src:"roster (no matchup data for this week)"};
 }
 
 async function run(force){
   const user=$("user").value.trim();
-  store.set("user",user);store.set("doubt",$("doubt").checked?"1":"0");
+  store.set("user",user);store.set("doubt",$("doubt").checked?"1":"0");store.set("debug",$("debug").checked?"1":"0");
   const out=$("out"),st=$("status");out.innerHTML="";
   if(!user){st.textContent="Enter your Sleeper username.";return}
   const ranks=collect();
@@ -206,20 +248,38 @@ async function run(force){
   $("go").disabled=true;
   try{
     st.textContent="Loading Sleeper data…";
-    const [state,u]=await Promise.all([api("/state/nfl"),api("/user/"+encodeURIComponent(user))]);
+    const [state,u]=await Promise.all([api("/state/nfl",true),api("/user/"+encodeURIComponent(user))]);
     if(!u||!u.user_id)throw new Error("Sleeper user not found.");
-    const leagues=await api(`/user/${u.user_id}/leagues/nfl/${state.season}`);
-    const players=await loadPlayers(force);
-    st.textContent=`Season ${state.season}, week ${state.week}. ${leagues.length} league(s).`;
-    const rosters=await Promise.all(leagues.map(l=>api(`/league/${l.league_id}/rosters`)));
+    const week=state.display_week||state.week;
+    const leagues=await api(`/user/${u.user_id}/leagues/nfl/${state.season}`,true);
+    let players=await loadPlayers(force);
+    st.textContent=`Season ${state.season}, week ${week}. ${leagues.length} league(s).`;
+    const [rosters,matchups]=await Promise.all([
+      Promise.all(leagues.map(l=>api(`/league/${l.league_id}/rosters`,true))),
+      Promise.all(leagues.map(l=>week?api(`/league/${l.league_id}/matchups/${week}`,true).catch(()=>null):null))
+    ]);
+    const mineAll=leagues.map((lg,i)=>rosters[i].find(r=>r.owner_id===u.user_id));
+    const curAll=mineAll.map((r,i)=>r?currentStarters(r,matchups[i],week):null);
+    // A rostered player missing from cached player data (new signing, position change) breaks the start/sit diff, so refresh once
+    const needed=mineAll.flatMap((r,i)=>r?[...(r.players||[]),...realIds(curAll[i].starters)]:[]);
+    if(!force&&needed.some(id=>!players[id]))players=await loadPlayers(true);
+    const opts={allowDoubt:$("doubt").checked,debug:$("debug").checked};
     leagues.forEach((lg,i)=>{
-      const mine=rosters[i].find(r=>r.owner_id===u.user_id);
-      out.insertAdjacentHTML("beforeend",mine?render(lg,mine,players,ranks,$("doubt").checked):`<div class="card"><h2>${esc(lg.name)}</h2><div class="ok">Couldn't find your roster.</div></div>`);
+      const mine=mineAll[i];
+      out.insertAdjacentHTML("beforeend",mine?render(lg,mine,curAll[i],players,ranks,opts):`<div class="card"><h2>${esc(lg.name)}</h2><div class="ok">Couldn't find your roster.</div></div>`);
     });
   }catch(e){st.innerHTML=`<span class="err">${esc(e.message)}</span>`}
   $("go").disabled=false;
 }
-$("user").value=store.get("user")||"";buildBoxes();$("newweek").onclick=()=>{for(const [k] of LISTS){$("t_"+k).value="";updCount(k,true)}$("status").textContent="Cleared. Paste this week's lists."};$("doubt").checked=store.get("doubt")==="1";
+$("user").value=store.get("user")||"";buildBoxes();$("newweek").onclick=()=>{for(const [k] of LISTS){$("t_"+k).value="";updCount(k,true)}$("status").textContent="Cleared. Paste this week's lists."};$("doubt").checked=store.get("doubt")==="1";$("debug").checked=store.get("debug")==="1";
+const TABS=["lineup","fa","weather"];
+function showTab(t){if(!TABS.includes(t))t="lineup";
+  for(const k of TABS){$("p_"+k).hidden=k!==t;$("tb_"+k).setAttribute("aria-selected",String(k===t))}
+  store.set("tab",t);if(location.hash!=="#"+t)history.replaceState(null,"","#"+t);
+}
+document.querySelector(".tabs").addEventListener("click",e=>{const t=e.target.dataset.tab;if(t)showTab(t)});
+window.addEventListener("hashchange",()=>showTab(location.hash.slice(1)));
+showTab(location.hash.slice(1)||store.get("tab")||"lineup");
 $("go").onclick=()=>run(false);
 $("refresh").onclick=()=>run(true);
 </script>
