@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Boone Lineups</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<style>
+:root{--bg:#f5f6f8;--card:#fff;--text:#14171c;--muted:#6a7280;--line:#e3e6ea;--accent:#1f6feb;--good:#1a7f37;--bad:#c62828;--warn:#9a6700;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#0e1115;--card:#171b21;--text:#e8eaed;--muted:#8b93a1;--line:#2a303a;--accent:#4c8dff;--good:#3fb950;--bad:#f2645a;--warn:#d4a72c;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.4 -apple-system,system-ui,sans-serif;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+main{max-width:640px;margin:0 auto;padding:16px}
+h1{font-size:22px;margin:4px 0 12px}
+label{display:block;font-size:13px;color:var(--muted);margin:12px 0 4px}
+input[type=text],textarea{width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--text);font:16px -apple-system,system-ui,sans-serif}
+textarea{min-height:200px;font:14px ui-monospace,Menlo,monospace}
+.row{display:flex;align-items:center;gap:8px;margin:12px 0;font-size:14px}
+button{width:100%;padding:14px;border:0;border-radius:12px;background:var(--accent);color:#fff;font-size:17px;font-weight:600}
+button:disabled{opacity:.6}
+.link{background:none;color:var(--accent);font-size:13px;width:auto;padding:4px 0;font-weight:400}
+#status{color:var(--muted);font-size:14px;margin:10px 0;min-height:20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin:12px 0}
+.card h2{font-size:17px;margin:0 0 8px}
+.slot{display:grid;grid-template-columns:76px 1fr auto;gap:6px;padding:5px 0;border-top:1px solid var(--line);font-size:15px;align-items:baseline}
+.slot:first-of-type{border-top:0}
+.s{color:var(--muted);font-size:12px;font-weight:600}
+.r{color:var(--muted);font-size:13px}
+.n{font-size:12px;color:var(--warn)}
+.swaps{margin-top:8px;padding-top:8px;border-top:2px solid var(--line);font-size:15px}
+.start{color:var(--good);font-weight:600}.sit{color:var(--bad);font-weight:600}
+.ok{color:var(--muted);font-size:14px}
+.err{color:var(--bad)}
+.box{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px 10px;margin:8px 0}
+.bh{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.bh b{font-size:15px}.cnt{flex:1;font-size:13px;color:var(--good)}
+.mini{width:auto;padding:6px 12px;font-size:14px;border-radius:8px;font-weight:600}
+.ghost{background:none;color:var(--muted);border:1px solid var(--line);font-weight:400}
+.stale{color:var(--warn)!important}.tv{font-size:12px;color:var(--accent);margin-left:4px}details{margin-top:8px;font-size:14px}summary{color:var(--accent);font-weight:600}.rv{display:grid;grid-template-columns:1fr auto;gap:6px;padding:3px 0;border-top:1px solid var(--line)}
+.box textarea{min-height:0;font-size:13px;padding:8px}
+small{color:var(--muted);display:block;margin-top:16px;font-size:12px}
+</style>
+</head>
+<body>
+<main>
+<h1>Boone Lineups</h1>
+<label for="user">Sleeper username</label>
+<input id="user" type="text" autocapitalize="none" autocorrect="off" autocomplete="username" placeholder="your_username">
+<label>Rankings: open each Boone page, copy the list, then tap Paste</label>
+<div id="boxes"></div>
+<button class="link" id="newweek">Clear all lists (new week)</button>
+<div class="row"><input id="doubt" type="checkbox"><label for="doubt" style="margin:0;color:var(--text)">Allow Doubtful players</label></div>
+<button id="go">Build my lineups</button>
+<div id="status"></div>
+<div id="out"></div>
+<button class="link" id="refresh">Refresh player data</button>
+<small>Sleeper's API is read-only, so make the swaps in the Sleeper app. Unranked players are usually on bye.</small>
+</main>
+<script>
+const API="https://api.sleeper.app/v1";
+const STRICT=new Set(["QB","RB","WR","TE","K","DEF"]);
+const FLEX={FLEX:["RB","WR","TE"],REC_FLEX:["WR","TE"],WRRB_FLEX:["WR","RB"],SUPER_FLEX:["QB","RB","WR","TE"]};
+const FLEX_ORDER=["REC_FLEX","WRRB_FLEX","FLEX","SUPER_FLEX"];
+const NON=new Set(["BN","IR","TAXI"]);
+const OUT=new Set(["Out","IR","PUP","Sus","NA","COV"]);
+const ALIAS={QB:"QB",RB:"RB",WR:"WR",TE:"TE",K:"K",FLEX:"FLEX",SUPERFLEX:"SUPERFLEX",SUPER_FLEX:"SUPERFLEX",DST:"DEF",DEF:"DEF","D/ST":"DEF"};
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const store={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
+
+function norm(s){return s.toLowerCase().replace(/[.'’]/g,"").replace(/[^a-z0-9\s]/g," ").replace(/\b(jr|sr|ii|iii|iv)\b/g,"").split(/\s+/).filter(Boolean).join(" ")}
+function sim(a,b){const m=a.length,n=b.length;if(!m||!n)return 0;let p=Array.from({length:n+1},(_,j)=>j);for(let i=1;i<=m;i++){const c=[i];for(let j=1;j<=n;j++)c[j]=Math.min(p[j]+1,c[j-1]+1,p[j-1]+(a[i-1]===b[j-1]?0:1));p=c}return 1-p[n]/Math.max(m,n)}
+
+function clean(line,sec){
+  line=line.trim();if(!line||line.startsWith("//"))return null;
+  let parts=line.split("\t").map(p=>p.trim()).filter(Boolean);
+  while(parts.length&&/^[\d.)#:\-]+$/.test(parts[0]))parts.shift();
+  if(!parts.length)return null;
+  let s=parts[0].replace(/^\s*#?\d+\s*[.):\-]?\s+/,"");
+  s=s.split(/\s*(?:,|\(|\s-\s|\svs\.?\s|\s@\s|\|)/)[0];
+  if(sec==="DEF")s=s.replace(/\s*\b(d\/st|dst|defense)\b/i,"");
+  return s.trim()||null;
+}
+function junk(n){return !/[a-z]/i.test(n)||n.length<3||/^[A-Z]{2,4}$/.test(n)||/^(vs\.?|bye|out|ir|q|d)$/i.test(n)||/^(vs\.?|@|at)\s/i.test(n)}
+function parseList(text,sec){
+  const r={};let c=0;
+  for(const raw of (text||"").split(/\r?\n/)){
+    const name=clean(raw,sec);
+    if(!name||junk(name))continue;
+    const k=norm(name);if(k&&!(k in r))r[k]=++c;
+  }
+  return r;
+}
+const SUF=new Set(["II","III","IV","JR","SR"]);
+function rowInfo(line){
+  line=line.replace(/\t/g," ").trim().replace(/^#?\d+\s*[.):]?\s+(?=[A-Za-z])/,"");
+  const tk=line.split(/\s+/).filter(Boolean),nm=[];let i=0;
+  for(;i<tk.length;i++){const t=tk[i];
+    if(!/^[A-Za-z][A-Za-z.'’\-]*$/.test(t)||/^(vs\.?|at|@|bye)$/i.test(t))break;
+    if(i>=2&&/^[A-Z]{2,4}$/.test(t)&&!SUF.has(t))break;
+    nm.push(t)}
+  const nums=tk.slice(i).map(t=>t.replace(/[%$,]/g,"")).filter(t=>/^[+-]?\d+(\.\d+)?$/.test(t)).map(Number);
+  return{name:nm.length>=2?nm.join(" "):null,nums};
+}
+function parseTV(text){
+  const lines=(text||"").split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+  const r={},ranks=lines.length&&/^#?\d+[.)]?$/.test(lines[0]);
+  let pend=null;
+  const fin=end=>{if(!pend)return;let n=pend.nums.slice();if(ranks&&!end&&n.length>1)n.pop();else if(ranks&&!end&&n.length===1&&false)n=[];
+    if(n.length){const k=norm(pend.name);if(k)r[k]=n[n.length-1]}pend=null};
+  for(const l of lines){
+    const bare=/^[+-]?\d+(\.\d+)?%?$/.test(l);
+    if(bare){if(pend)pend.nums.push(parseFloat(l));continue}
+    const info=rowInfo(l);
+    if(!info.name)continue;
+    fin(false);
+    if(info.nums.length){r[norm(info.name)]=info.nums[info.nums.length-1]}
+    else pend={name:info.name,nums:[]};
+  }
+  fin(true);
+  return r;
+}
+const LISTS=[["QB","Quarterbacks"],["RB","Running backs"],["WR","Wide receivers"],["TE","Tight ends"],["FLEX","FLEX (RB/WR/TE)"],["DEF","Defenses (D/ST)"],["K","Kickers"],["SUPERFLEX","Superflex (optional)"],["TV","Trade values, rest of season (each paste is added)"]];
+function ago(ts){const m=Math.round((Date.now()-ts)/60000);return m<1?"just now":m<60?m+"m ago":m<1440?Math.round(m/60)+"h ago":Math.round(m/1440)+"d ago"}
+function updCount(k,stamp){
+  const v=$("t_"+k).value;
+  const n=Object.keys(k==="TV"?parseTV(v):parseList(v,k)).length;
+  store.set("list_"+k,v);
+  if(stamp)store.set("ts_"+k,v.trim()?String(Date.now()):"");
+  const ts=+store.get("ts_"+k)||0,el=$("c_"+k);
+  el.textContent=n?`${n} players${ts?" · "+ago(ts):""}`:"";
+  el.classList.toggle("stale",!!ts&&Date.now()-ts>3*86400e3);
+}
+function buildBoxes(){
+  $("boxes").innerHTML=LISTS.map(([k,l])=>`<div class="box"><div class="bh"><b>${l}</b><span class="cnt" id="c_${k}"></span><button class="mini" data-p="${k}">Paste</button><button class="mini ghost" data-c="${k}">Clear</button></div><textarea id="t_${k}" rows="2" placeholder="Tap Paste, or paste here"></textarea></div>`).join("");
+  for(const [k] of LISTS){const t=$("t_"+k);t.value=store.get("list_"+k)||"";updCount(k);t.addEventListener("input",()=>updCount(k,true))}
+  $("boxes").addEventListener("click",async e=>{
+    const p=e.target.dataset.p,c=e.target.dataset.c;
+    if(p){try{const txt=await navigator.clipboard.readText();const ta=$("t_"+p);ta.value=p==="TV"&&ta.value.trim()?ta.value.trim()+"\n"+txt:txt;updCount(p,true)}catch(err){$("status").textContent="Couldn't read the clipboard. Tap the box and paste manually.";$("t_"+p).focus()}}
+    if(c){$("t_"+c).value="";updCount(c,true)}
+  });
+}
+function collect(){const r={};for(const [k] of LISTS){if(k==="TV")continue;const o=parseList($("t_"+k).value,k);if(Object.keys(o).length)r[k]=o}return r}
+function lookup(table,p){
+  if(!table)return null;
+  if(p.p==="DEF"){
+    const mas=norm(p.l||""),city=norm(p.f||"");
+    for(const k of [`${city} ${mas}`.trim(),mas])if(k in table)return table[k];
+    for(const k in table)if(mas&&k.endsWith(mas))return table[k];
+    return null;
+  }
+  const keys=[norm(p.n||""),norm(`${p.f||""} ${p.l||""}`)].filter(Boolean);
+  for(const k of keys)if(k in table)return table[k];
+  for(const k of keys){let best=null,bs=0;for(const t in table){const s=sim(k,t);if(s>bs){bs=s;best=t}}if(bs>=0.88)return table[best]}
+  return null;
+}
+
+async function api(path){const r=await fetch(API+path);if(!r.ok)throw new Error(`Sleeper error ${r.status} on ${path}`);return r.json()}
+async function loadPlayers(force){
+  const raw=store.get("players_v1");
+  if(!force&&raw){try{const o=JSON.parse(raw);if(Date.now()-o.ts<12*3600e3)return o.data}catch(e){}}
+  const all=await api("/players/nfl");const data={};
+  for(const id in all){const x=all[id];
+    if(!STRICT.has(x.position))continue;
+    if(x.position!=="DEF"&&!x.team&&!x.active)continue;
+    data[id]={n:x.full_name||`${x.first_name||""} ${x.last_name||""}`.trim(),f:x.first_name,l:x.last_name,p:x.position,t:x.team,i:x.injury_status};
+  }
+  store.set("players_v1",JSON.stringify({ts:Date.now(),data}));
+  return data;
+}
+
+const cmp=(a,b)=>{for(let i=0;i<Math.max(a.length,b.length);i++){const x=a[i]??0,y=b[i]??0;if(x!==y)return x<y?-1:1}return 0};
+function fk(c,slot){
+  const cur=c.cur?0:1;
+  if(slot==="SUPER_FLEX"){if(c.rsf!=null)return[0,c.rsf,cur];return[1,c.pos==="QB"?0:1,...fk(c,"FLEX")]}
+  if(c.rf!=null)return[0,c.rf,cur];
+  if(c.rp!==Infinity)return[1,c.rp,cur];
+  return[2,0,cur];
+}
+function candidates(roster,players,ranks,allowDoubt,tvt){
+  const benchOnly=new Set([...(roster.reserve||[]),...(roster.taxi||[])]);
+  const cur=new Set((roster.starters||[]).filter(x=>x&&x!=="0"));
+  const out=[];
+  for(const id of roster.players||[]){
+    if(benchOnly.has(id))continue;const p=players[id];if(!p)continue;
+    const isSk=["RB","WR","TE"].includes(p.p),isSf=p.p!=="K"&&p.p!=="DEF";
+    const rp=lookup(ranks[p.p],p);
+    out.push({id,name:p.n||(p.f+" "+p.l),pos:p.p,team:p.t,inj:p.i,
+      out:OUT.has(p.i)||(!allowDoubt&&p.i==="Doubtful"),
+      rp:rp??Infinity,tv:lookup(tvt,p),rf:isSk?lookup(ranks.FLEX,p):null,rsf:isSf?lookup(ranks.SUPERFLEX,p):null,cur:cur.has(id)});
+  }
+  return out;
+}
+function build(slots,cands){
+  const res=Array(slots.length).fill(null),used=new Set(),av=cands.filter(c=>!c.out);
+  slots.forEach((s,i)=>{if(!STRICT.has(s))return;
+    const pool=av.filter(c=>c.pos===s&&!used.has(c.id)).sort((a,b)=>cmp([a.rp,a.cur?0:1],[b.rp,b.cur?0:1]));
+    if(pool[0]){res[i]=pool[0];used.add(pool[0].id)}});
+  for(const st of FLEX_ORDER)slots.forEach((s,i)=>{if(s!==st)return;
+    const pool=av.filter(c=>FLEX[s].includes(c.pos)&&!used.has(c.id)).sort((a,b)=>cmp(fk(a,s),fk(b,s)));
+    if(pool[0]){res[i]=pool[0];used.add(pool[0].id)}});
+  return res;
+}
+
+function render(lg,roster,players,ranks,allowDoubt,tvt){
+  const slots=lg.roster_positions.filter(p=>!NON.has(p));
+  const cands=candidates(roster,players,ranks,allowDoubt,tvt),line=build(slots,cands),byId=Object.fromEntries(cands.map(c=>[c.id,c]));
+  let h=`<div class="card"><h2>${esc(lg.name)}</h2>`;
+  slots.forEach((s,i)=>{const c=line[i];
+    if(!c){h+=`<div class="slot"><span class="s">${esc(s)}</span><span>Nobody eligible</span><span></span></div>`;return}
+    const notes=[];if(c.rp===Infinity)notes.push("UNRANKED (bye?)");if(c.inj)notes.push(c.inj);
+    h+=`<div class="slot"><span class="s">${esc(s.replace("_"," "))}</span><span>${esc(c.name)} <span class="r">${esc(c.pos)} ${esc(c.team||"")}</span>${c.tv!=null?`<span class="tv">TV ${c.tv}</span>`:""}${notes.length?`<div class="n">${esc(notes.join(", "))}</div>`:""}</span><span class="r">${c.rp===Infinity?"--":"#"+c.rp}</span></div>`});
+  const nw=new Set(line.filter(Boolean).map(c=>c.id)),old=new Set((roster.starters||[]).filter(x=>x&&x!=="0"));
+  const starts=[...nw].filter(i=>!old.has(i)).map(i=>byId[i].name).sort();
+  const sits=[...old].filter(i=>!nw.has(i)).map(i=>players[i]?.n||i).sort();
+  h+=`<div class="swaps">`;
+  if(!starts.length&&!sits.length)h+=`<div class="ok">No changes. Your lineup already matches Boone.</div>`;
+  else{starts.forEach(n=>h+=`<div><span class="start">START</span> ${esc(n)}</div>`);sits.forEach(n=>h+=`<div><span class="sit">SIT</span> ${esc(n)}</div>`)}
+  h+=`</div>`;
+  if(tvt&&Object.keys(tvt).length){
+    const all=(roster.players||[]).map(id=>players[id]).filter(Boolean).filter(p=>p.p!=="DEF"&&p.p!=="K").map(p=>({n:p.n,p:p.p,t:p.t,v:lookup(tvt,p)}));
+    all.sort((a,b)=>(b.v??-1)-(a.v??-1));
+    const tot=all.reduce((x,y)=>x+(y.v||0),0);
+    h+=`<details><summary>Trade values (roster total ${Math.round(tot*10)/10})</summary>`+all.map(x=>`<div class="rv"><span>${esc(x.n)} <span class="r">${esc(x.p)} ${esc(x.t||"")}</span></span><span class="tv">${x.v!=null?x.v:"--"}</span></div>`).join("")+`</details>`;
+  }
+  return h+`</div>`;
+}
+
+async function run(force){
+  const user=$("user").value.trim();
+  store.set("user",user);store.set("doubt",$("doubt").checked?"1":"0");
+  const out=$("out"),st=$("status");out.innerHTML="";
+  if(!user){st.textContent="Enter your Sleeper username.";return}
+  const ranks=collect();
+  if(!Object.keys(ranks).length){st.innerHTML='<span class="err">No rankings found. Paste at least one list first.</span>';return}
+  $("go").disabled=true;
+  try{
+    st.textContent="Loading Sleeper data…";
+    const [state,u]=await Promise.all([api("/state/nfl"),api("/user/"+encodeURIComponent(user))]);
+    if(!u||!u.user_id)throw new Error("Sleeper user not found.");
+    const leagues=await api(`/user/${u.user_id}/leagues/nfl/${state.season}`);
+    const players=await loadPlayers(force);
+    st.textContent=`Season ${state.season}, week ${state.week}. ${leagues.length} league(s).`;
+    const tv=parseTV($("t_TV").value);
+    const rosters=await Promise.all(leagues.map(l=>api(`/league/${l.league_id}/rosters`)));
+    leagues.forEach((lg,i)=>{
+      const mine=rosters[i].find(r=>r.owner_id===u.user_id);
+      out.insertAdjacentHTML("beforeend",mine?render(lg,mine,players,ranks,$("doubt").checked,tv):`<div class="card"><h2>${esc(lg.name)}</h2><div class="ok">Couldn't find your roster.</div></div>`);
+    });
+  }catch(e){st.innerHTML=`<span class="err">${esc(e.message)}</span>`}
+  $("go").disabled=false;
+}
+$("user").value=store.get("user")||"";buildBoxes();$("newweek").onclick=()=>{for(const [k] of LISTS){$("t_"+k).value="";updCount(k,true)}$("status").textContent="Cleared. Paste this week's lists."};$("doubt").checked=store.get("doubt")==="1";
+$("go").onclick=()=>run(false);
+$("refresh").onclick=()=>run(true);
+</script>
+</body>
+</html>
