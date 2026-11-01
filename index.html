@@ -94,10 +94,10 @@ select.full{width:100%;height:44px}
 <label for="user">Sleeper username</label>
 <input id="user" type="text" autocapitalize="none" autocorrect="off" autocomplete="username" placeholder="your_username">
 <details id="sync" class="sync"><summary>Sync &amp; saved lineups <span id="sync_state" class="r"></span></summary>
-<div id="sync_off"><div class="ok" id="sync_hint" style="margin-top:6px"></div><label for="acode">Access code (owner only)</label>
+<div id="sync_off"><label for="acode">Access code (set on your Cloudflare Worker)</label>
 <div class="loadrow" style="margin-top:0"><input id="acode" type="password" autocomplete="current-password" autocapitalize="none"><button id="acode_go" class="mini" style="width:auto;padding:0 16px">Connect</button></div></div>
-<div id="sync_on" hidden><span class="ok"><span id="sync_who"></span> Your username, settings and lineup builds are saved to your account.</span> <button class="link" id="acode_off">Sign out</button>
-<div id="espn_box" hidden><label for="espn_ids">ESPN league IDs (the number after leagueId= on espn.com)</label><input id="espn_ids" type="text" inputmode="numeric" autocomplete="off" placeholder="e.g. 1126044, 961759960"></div></div>
+<div id="sync_on" hidden><span class="ok">Your username, settings and lineup builds are saved to your database.</span> <button class="link" id="acode_off">Disconnect this device</button>
+<label for="espn_ids">ESPN league IDs (the number after leagueId= on espn.com)</label><input id="espn_ids" type="text" inputmode="numeric" autocomplete="off" placeholder="e.g. 1126044, 961759960"></div>
 <div id="sync_msg" class="status"></div></details>
 <nav class="tabs" role="tablist">
 <button role="tab" id="tb_lineup" data-tab="lineup" aria-controls="p_lineup">Lineup</button>
@@ -170,8 +170,6 @@ select.full{width:100%;height:44px}
 </section>
 </main>
 <script>
-// The app now lives on the Worker (same address as its API, needed for the email sign-in on phones). Old GitHub Pages links forward there.
-if(location.hostname.endsWith("github.io")&&!/[?&]stay\b/.test(location.search))location.replace("https://boone-api.ajzimmerman98.workers.dev/"+location.hash);
 const API="https://api.sleeper.app/v1";
 const STRICT=new Set(["QB","RB","WR","TE","K","DEF"]);
 const FLEX={FLEX:["RB","WR","TE"],REC_FLEX:["WR","TE"],WRRB_FLEX:["WR","RB"],SUPER_FLEX:["QB","RB","WR","TE"]};
@@ -365,7 +363,7 @@ async function loadSleeper(user,force,st){
   return{state,week,leagues,players,rosters,mineAll,curAll,userId:u.user_id,espnErrors};
 }
 // ESPN leagues come from the Worker already in Sleeper's shape; merge them in so every tab handles them the same way
-const espnIds=()=>!(ME&&ME.owner)?[]:(store.get("espn_leagues")||"").split(/[\s,]+/).filter(x=>/^\d{1,12}$/.test(x));
+const espnIds=()=>(store.get("espn_leagues")||"").split(/[\s,]+/).filter(x=>/^\d{1,12}$/.test(x));
 const espnPlayers=leagues=>Object.assign({},...leagues.filter(l=>l.provider==="espn").map(l=>l._players));
 async function addEspn(season,myId,leagues,rosters,matchups,players,st){
   if(!synced()||!espnIds().length)return[];
@@ -419,10 +417,8 @@ async function run(force){
 }
 // ---------- Trade values (via the Cloudflare Worker in worker/) ----------
 const API_BASE_DEFAULT="https://boone-api.ajzimmerman98.workers.dev"; // Cloudflare Worker (worker/). Can be overridden with ?api=<url>
-// HOSTED = the app is served by the Worker itself (the normal case): same address as the API, signed in with Cloudflare Access
-const HOSTED=/^https?:$/.test(location.protocol)&&(location.origin===new URL(API_BASE_DEFAULT).origin||location.hostname.endsWith(".workers.dev"));
 {const q=new URLSearchParams(location.search).get("api");if(q)store.set("api_url",q.replace(/\/+$/,""))}
-const apiBase=()=>HOSTED?location.origin:store.get("api_url")||API_BASE_DEFAULT;
+const apiBase=()=>store.get("api_url")||API_BASE_DEFAULT;
 let TV=null; // {data, idx:{QB:{normName:values}}}
 function indexTV(data){
   const idx={};for(const [pos,c] of Object.entries(data.charts||{})){idx[pos]={};for(const p of c.players){const k=norm(p.name);if(k&&!(k in idx[pos]))idx[pos][k]=p.values}}
@@ -641,32 +637,20 @@ $("tr_ideas").addEventListener("click",e=>{const k=e.target.dataset.idea;if(k==n
 $("tr_ui").addEventListener("change",e=>{const c=e.target;if(c.type!=="checkbox")return;const set=c.dataset.side==="give"?TR.give:TR.get;c.checked?set.add(c.dataset.id):set.delete(c.dataset.id);trSum()});
 
 // ---------- Sync: profile and saved lineup builds (D1 via the Worker) ----------
-let ME=null; // {email, owner} once signed in: Cloudflare Access (email code), or the owner's access code
-const synced=()=>!!(apiBase()&&ME);
+const synced=()=>!!(apiBase()&&store.get("acode"));
 async function me(path,opt={}){
-  const code=store.get("acode");let r;
-  try{r=await fetch(apiBase()+"/me"+path,{...opt,cache:"no-store",redirect:"manual",credentials:HOSTED?"same-origin":"omit",headers:{"Content-Type":"application/json",...(code?{Authorization:"Bearer "+code}:{}),...(opt.headers||{})}})}
-  catch(e){throw new Error("Couldn't reach your account. Check your connection, or reload the page to sign in again.")}
-  // Access answers an expired sign-in with a redirect to its login page
-  if(r.type==="opaqueredirect"||r.status===0){const e=new Error("Your sign-in expired. Reload the page to sign in again.");e.status=401;throw e}
+  const r=await fetch(apiBase()+"/me"+path,{...opt,cache:"no-store",headers:{"Content-Type":"application/json",Authorization:"Bearer "+store.get("acode"),...(opt.headers||{})}});
   const d=await r.json().catch(()=>({}));
-  if(!r.ok){const e=new Error(d.error||`Sync error ${r.status}`);e.status=r.status;throw e}
+  if(!r.ok)throw new Error(d.error||`Sync error ${r.status}`);
   return d;
 }
 const settingsNow=()=>({rankSource:$("rsrc").value,faSource:$("fa_src").value,tvSource:$("tr_vsrc").value,pwSource:$("pw_src").value,doubt:$("doubt").checked,debug:$("debug").checked,espnLeagues:espnIds()});
 let profTimer=null;
 function saveProfile(){if(!synced())return;clearTimeout(profTimer);profTimer=setTimeout(()=>me("/profile",{method:"PUT",body:JSON.stringify({sleeperUsername:$("user").value.trim(),settings:settingsNow()})}).catch(()=>{}),800)}
-function syncUI(){const on=synced();$("sync_off").hidden=on;$("sync_on").hidden=!on;$("sync_state").textContent=on?"· signed in":"";
-  $("sync_who").textContent=on?(ME.email&&ME.email!=="owner"?`Signed in as ${ME.email}.`:"Connected with the access code."):"";
-  $("acode_off").textContent=on&&!store.get("acode")?"Sign out":"Disconnect this device";
-  $("espn_box").hidden=!(on&&ME.owner);
-  $("sync_hint").textContent=HOSTED?"Sign-in isn't working yet: reload the page, or ask the owner to add your email.":"Open the app at its Worker address to sign in with your email.";
-  if(!on)$("saved").innerHTML=""}
-// code = the owner's access code, or nothing to use the Cloudflare Access sign-in
-async function connectSync(code,quiet){
-  const msg=$("sync_msg");if(code)store.set("acode",code);if(!quiet)msg.textContent="Connecting…";
+function syncUI(){const on=synced();$("sync_off").hidden=on;$("sync_on").hidden=!on;$("sync_state").textContent=on?"· connected":"";if(!on)$("saved").innerHTML=""}
+async function connectSync(code){
+  const msg=$("sync_msg");store.set("acode",code);msg.textContent="Connecting…";
   try{
-    ME=await me("/whoami");
     const p=await me("/profile");
     // On a new device the database is the source of truth; otherwise keep what's here and save it
     if(p.sleeperUsername&&!$("user").value.trim()){$("user").value=p.sleeperUsername;store.set("user",p.sleeperUsername)}
@@ -674,7 +658,7 @@ async function connectSync(code,quiet){
     if(!p.updatedAt)saveProfile();
     else{if(SRC_NAME[st.rankSource])($("rsrc").value=st.rankSource,store.set("rsrc",st.rankSource));if(PW_SRC[st.pwSource])($("pw_src").value=st.pwSource,store.set("pw_src",st.pwSource));if(TV_SRC[st.tvSource])($("tr_vsrc").value=st.tvSource,store.set("tv_src",st.tvSource));if(st.faSource&&$("fa_src").querySelector(`option[value="${st.faSource}"]`))($("fa_src").value=st.faSource,store.set("fa_src",st.faSource));if(typeof st.doubt==="boolean")$("doubt").checked=st.doubt;if(typeof st.debug==="boolean")$("debug").checked=st.debug;if(Array.isArray(st.espnLeagues)){store.set("espn_leagues",st.espnLeagues.join(", "));$("espn_ids").value=store.get("espn_leagues")}}
     msg.textContent="";syncUI();await loadSaved();
-  }catch(e){ME=null;if(code&&e.status===401)store.set("acode","");syncUI();if(!quiet||store.get("acode"))msg.innerHTML=`<span class="err">${esc(e.message)}</span>`}
+  }catch(e){store.set("acode","");syncUI();msg.innerHTML=`<span class="err">${esc(e.message)}</span>`}
 }
 async function saveBuilds(season,week,source,collected){
   if(!collected.length)return;
@@ -703,7 +687,7 @@ async function loadSaved(){
 }
 $("acode_go").onclick=()=>{const c=$("acode").value.trim();if(c)connectSync(c)};
 $("acode").addEventListener("keydown",e=>{if(e.key==="Enter")$("acode_go").click()});
-$("acode_off").onclick=()=>{if(store.get("acode")){store.set("acode","");$("acode").value="";ME=null;syncUI()}else location.href="/cdn-cgi/access/logout"};
+$("acode_off").onclick=()=>{store.set("acode","");$("acode").value="";syncUI()};
 $("saved").addEventListener("click",async e=>{const id=e.target.dataset.del;if(!id)return;e.target.disabled=true;try{await me("/builds/"+id,{method:"DELETE"});await loadSaved()}catch(err){e.target.textContent="Couldn't delete"}});
 $("user").addEventListener("change",saveProfile);$("doubt").addEventListener("change",saveProfile);
 $("espn_ids").value=store.get("espn_leagues")||"";
@@ -1032,8 +1016,7 @@ $("fa_src").onchange=()=>{store.set("fa_src",$("fa_src").value);saveProfile();if
 $("rsrc").value=SRC_NAME[store.get("rsrc")]?store.get("rsrc"):"boone";
 $("rsrc").onchange=()=>{store.set("rsrc",$("rsrc").value);saveProfile()};
 
-$("user").value=store.get("user")||"";syncUI();sleeperWeek().catch(()=>{});
-if(HOSTED||store.get("acode"))connectSync(store.get("acode")||"",true);$("doubt").checked=store.get("doubt")==="1";$("debug").checked=store.get("debug")==="1";
+$("user").value=store.get("user")||"";syncUI();sleeperWeek().catch(()=>{}).then(()=>{if(synced())loadSaved()});$("doubt").checked=store.get("doubt")==="1";$("debug").checked=store.get("debug")==="1";
 // ---------- Power rankings tab ----------
 // Score = best starting lineup (full value) + depth (best bench players at decreasing weights), rest-of-season values.
 const PW_DEPTH=[0.35,0.3,0.25,0.2,0.15,0.1];
