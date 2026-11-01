@@ -21,6 +21,7 @@ Private (send `Authorization: Bearer <ACCESS_CODE>`):
 | `GET /me/builds?limit` | Saved lineup builds, newest first, each with `latestPub` (newest Boone rankings for its week) so the app can mark it expired. |
 | `POST /me/builds` | Save builds: `{ "builds": [...] }`. Keeps the newest 200. |
 | `DELETE /me/builds/:id` | Delete one build. |
+| `GET /me/espn?season` | Your ESPN leagues (IDs saved in profile `settings.espnLeagues`), converted to the app's Sleeper-style league shape: slots, scoring, every team's roster and current lineup. |
 
 A cron trigger runs every 3 hours and saves new versions of Boone's rankings (PPR and half-PPR) and the week's trade value charts, so "expired" works even when the app isn't open.
 
@@ -42,6 +43,15 @@ Imported from GitHub in **Workers & Pages** as `boone-api`, with **Path** (root 
 1. Open the `boone-api` Worker → **Settings → Variables and Secrets → Add**.
 2. Type **Secret**, name `ACCESS_CODE`, value: a passphrase only you know. Secrets aren't stored in the repo and survive redeploys.
 3. In the app, open **Sync & saved lineups** and enter the same code. Each browser remembers it.
+
+### 4. ESPN leagues (optional)
+ESPN leagues are private by default, so the Worker reads them with your ESPN login cookies. They act like a login, so keep them as secrets only.
+1. On a computer, log in at [espn.com](https://www.espn.com), then open your browser's developer tools → **Application/Storage → Cookies → https://www.espn.com**.
+2. Copy the values of `espn_s2` and `SWID`.
+3. In the `boone-api` Worker → **Settings → Variables and Secrets**, add two **Secrets**: `ESPN_S2` and `ESPN_SWID`.
+4. In the app, under **Sync & saved lineups**, enter your ESPN league IDs (the number after `leagueId=` in the league's address).
+
+The cookies expire every so often (about a year); when ESPN leagues stop loading with "rejected the login cookies", replace them.
 
 ## Connect the app
 

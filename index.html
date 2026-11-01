@@ -86,7 +86,8 @@ select.full{width:100%;height:44px}
 <details id="sync" class="sync"><summary>Sync &amp; saved lineups <span id="sync_state" class="r"></span></summary>
 <div id="sync_off"><label for="acode">Access code (set on your Cloudflare Worker)</label>
 <div class="loadrow" style="margin-top:0"><input id="acode" type="password" autocomplete="current-password" autocapitalize="none"><button id="acode_go" class="mini" style="width:auto;padding:0 16px">Connect</button></div></div>
-<div id="sync_on" hidden><span class="ok">Your username, settings and lineup builds are saved to your database.</span> <button class="link" id="acode_off">Disconnect this device</button></div>
+<div id="sync_on" hidden><span class="ok">Your username, settings and lineup builds are saved to your database.</span> <button class="link" id="acode_off">Disconnect this device</button>
+<label for="espn_ids">ESPN league IDs (the number after leagueId= on espn.com)</label><input id="espn_ids" type="text" inputmode="numeric" autocomplete="off" placeholder="e.g. 1126044, 961759960"></div>
 <div id="sync_msg" class="status"></div></details>
 <nav class="tabs" role="tablist">
 <button role="tab" id="tb_lineup" data-tab="lineup" aria-controls="p_lineup">Lineup</button>
@@ -323,7 +324,7 @@ function render(lg,roster,cur,players,ranks,opts){
 function debugBlock(slots,starters,line,src,players,byId){
   const nm=id=>!id||id==="0"?"(empty)":byId[id]?.name||players[id]?.n||null;
   const cell=id=>{const n=nm(id);return n==null?`<span class="miss">missing from player data (${esc(id)})</span>`:`${esc(n)} <span class="r">${esc(id||"")}</span>`};
-  let h=`<details class="dbg" open><summary>Debug</summary><div>Current starters from: ${esc(src)}</div><table><tr><td>Slot</td><td>Sleeper now</td><td>Suggested</td></tr>`;
+  let h=`<details class="dbg" open><summary>Debug</summary><div>Current starters from: ${esc(src)}</div><table><tr><td>Slot</td><td>Current</td><td>Suggested</td></tr>`;
   slots.forEach((s,i)=>{h+=`<tr><td>${esc(s)}</td><td>${cell((starters||[])[i])}</td><td>${line[i]?cell(line[i].id):"(none)"}</td></tr>`});
   return h+`</table></details>`;
 }
@@ -331,7 +332,7 @@ function debugBlock(slots,starters,line,src,players,byId){
 function currentStarters(roster,matchups,week){
   const m=Array.isArray(matchups)?matchups.find(x=>x.roster_id===roster.roster_id):null;
   if(m&&Array.isArray(m.starters)&&m.starters.length)return{starters:m.starters,src:`week ${week} matchup`};
-  return{starters:roster.starters||[],src:"roster (no matchup data for this week)"};
+  return{starters:roster.starters||[],src:roster._espn?"ESPN lineup":"roster (no matchup data for this week)"};
 }
 
 // Shared by every tab: user, leagues, my roster and current starters in each league, player data
@@ -346,12 +347,28 @@ async function loadSleeper(user,force,st){
     Promise.all(leagues.map(l=>api(`/league/${l.league_id}/rosters`,true))),
     Promise.all(leagues.map(l=>week?api(`/league/${l.league_id}/matchups/${week}`,true).catch(()=>null):null))
   ]);
+  const espnErrors=await addEspn(+state.season,u.user_id,leagues,rosters,matchups,players,st);
   const mineAll=leagues.map((lg,i)=>rosters[i].find(r=>r.owner_id===u.user_id));
   const curAll=mineAll.map((r,i)=>r?currentStarters(r,matchups[i],week):null);
   // A rostered player missing from cached player data (new signing, position change) breaks the start/sit diff, so refresh once
-  const needed=mineAll.flatMap((r,i)=>r?[...(r.players||[]),...realIds(curAll[i].starters)]:[]);
-  if(!force&&needed.some(id=>!players[id]))players=await loadPlayers(true);
-  return{state,week,leagues,players,rosters,mineAll,curAll,userId:u.user_id};
+  const needed=mineAll.flatMap((r,i)=>r?[...(r.players||[]),...realIds(curAll[i].starters)]:[]).filter(id=>!String(id).startsWith("espn:"));
+  if(!force&&needed.some(id=>!players[id])){players={...await loadPlayers(true),...espnPlayers(leagues)}}
+  return{state,week,leagues,players,rosters,mineAll,curAll,userId:u.user_id,espnErrors};
+}
+// ESPN leagues come from the Worker already in Sleeper's shape; merge them in so every tab handles them the same way
+const espnIds=()=>(store.get("espn_leagues")||"").split(/[\s,]+/).filter(x=>/^\d{1,12}$/.test(x));
+const espnPlayers=leagues=>Object.assign({},...leagues.filter(l=>l.provider==="espn").map(l=>l._players));
+async function addEspn(season,myId,leagues,rosters,matchups,players,st){
+  if(!synced()||!espnIds().length)return[];
+  st.textContent="Loading ESPN leagues…";
+  let d;try{d=await me("/espn?season="+season)}catch(e){return[{leagueId:"ESPN",error:e.message}]}
+  for(const L of d.leagues){
+    const names={};
+    const rs=L.teams.map(t=>{const owner=t.mine?myId:t.owner_id;names[owner]=t.team_name+(t.owner_name?` (${t.owner_name})`:"");return{roster_id:t.roster_id,owner_id:owner,players:t.players,starters:t.starters,reserve:t.reserve,_espn:true}});
+    leagues.push({league_id:L.league_id,name:L.name+" · ESPN",provider:"espn",roster_positions:L.roster_positions,scoring_settings:L.scoring_settings,_names:names,_players:L.players});
+    rosters.push(rs);matchups.push(null);Object.assign(players,L.players);
+  }
+  return d.errors||[];
 }
 async function run(force){
   const user=$("user").value.trim();
@@ -362,8 +379,8 @@ async function run(force){
   if(!Object.keys(ranks).length){st.innerHTML='<span class="err">No rankings found. Paste at least one list first.</span>';return}
   $("go").disabled=true;
   try{
-    const [{state,week,leagues,players,mineAll,curAll}]=await Promise.all([loadSleeper(user,force,st),apiBase()?ensureTV().catch(()=>null):null]);
-    st.textContent=`Season ${state.season}, week ${week}. ${leagues.length} league(s).`;
+    const [{state,week,leagues,players,mineAll,curAll,espnErrors}]=await Promise.all([loadSleeper(user,force,st),apiBase()?ensureTV().catch(()=>null):null]);
+    st.textContent=`Season ${state.season}, week ${week}. ${leagues.length} league(s).`+espnErrors.map(e=>` ESPN ${e.leagueId}: ${e.error}`).join("");
     const opts={allowDoubt:$("doubt").checked,debug:$("debug").checked,collect:[]};
     leagues.forEach((lg,i)=>{
       const mine=mineAll[i];
@@ -429,7 +446,7 @@ async function trRun(){
 async function trLeague(){
   const i=+$("tr_league").value,{sl}=TR,lg=sl.leagues[i];store.set("tr_league",String(i));
   TR.give.clear();TR.get.clear();$("tr_ideas").innerHTML="";
-  if(!TR.users[lg.league_id])TR.users[lg.league_id]=await api(`/league/${lg.league_id}/users`).catch(()=>[]);
+  if(!TR.users[lg.league_id])TR.users[lg.league_id]=lg.provider==="espn"?Object.entries(lg._names).map(([user_id,display_name])=>({user_id,display_name})):await api(`/league/${lg.league_id}/users`).catch(()=>[]);
   const names=Object.fromEntries(TR.users[lg.league_id].map(u=>[u.user_id,u.metadata?.team_name||u.display_name||"Team"]));
   const others=sl.rosters[i].filter(r=>r.owner_id!==sl.userId);
   $("tr_team").innerHTML=others.map(r=>`<option value="${r.roster_id}">${esc(names[r.owner_id]||"Team "+r.roster_id)}</option>`).join("");
@@ -540,7 +557,7 @@ async function me(path,opt={}){
   if(!r.ok)throw new Error(d.error||`Sync error ${r.status}`);
   return d;
 }
-const settingsNow=()=>({scoring:$("scoring").value,doubt:$("doubt").checked,debug:$("debug").checked});
+const settingsNow=()=>({scoring:$("scoring").value,doubt:$("doubt").checked,debug:$("debug").checked,espnLeagues:espnIds()});
 let profTimer=null;
 function saveProfile(){if(!synced())return;clearTimeout(profTimer);profTimer=setTimeout(()=>me("/profile",{method:"PUT",body:JSON.stringify({sleeperUsername:$("user").value.trim(),settings:settingsNow()})}).catch(()=>{}),800)}
 function syncUI(){const on=synced();$("sync_off").hidden=on;$("sync_on").hidden=!on;$("sync_state").textContent=on?"· connected":"";if(!on)$("saved").innerHTML=""}
@@ -552,7 +569,7 @@ async function connectSync(code){
     if(p.sleeperUsername&&!$("user").value.trim()){$("user").value=p.sleeperUsername;store.set("user",p.sleeperUsername)}
     const st=p.settings||{};
     if(!p.updatedAt)saveProfile();
-    else{if(st.scoring)($("scoring").value=st.scoring,store.set("scoring",st.scoring));if(typeof st.doubt==="boolean")$("doubt").checked=st.doubt;if(typeof st.debug==="boolean")$("debug").checked=st.debug}
+    else{if(st.scoring)($("scoring").value=st.scoring,store.set("scoring",st.scoring));if(typeof st.doubt==="boolean")$("doubt").checked=st.doubt;if(typeof st.debug==="boolean")$("debug").checked=st.debug;if(Array.isArray(st.espnLeagues)){store.set("espn_leagues",st.espnLeagues.join(", "));$("espn_ids").value=store.get("espn_leagues")}}
     msg.textContent="";syncUI();await loadSaved();
   }catch(e){store.set("acode","");syncUI();msg.innerHTML=`<span class="err">${esc(e.message)}</span>`}
 }
@@ -588,6 +605,8 @@ $("acode").addEventListener("keydown",e=>{if(e.key==="Enter")$("acode_go").click
 $("acode_off").onclick=()=>{store.set("acode","");$("acode").value="";syncUI()};
 $("saved").addEventListener("click",async e=>{const id=e.target.dataset.del;if(!id)return;e.target.disabled=true;try{await me("/builds/"+id,{method:"DELETE"});await loadSaved()}catch(err){e.target.textContent="Couldn't delete"}});
 $("user").addEventListener("change",saveProfile);$("doubt").addEventListener("change",saveProfile);
+$("espn_ids").value=store.get("espn_leagues")||"";
+$("espn_ids").addEventListener("change",()=>{store.set("espn_leagues",$("espn_ids").value);store.set("espn_leagues",espnIds().join(", "));$("espn_ids").value=store.get("espn_leagues");saveProfile()});
 
 // ---------- Boone rankings loader ----------
 // Yahoo's Boone articles embed a FantasyPros widget; 317 is Boone's FantasyPros expert id. Not an official API, so Paste stays as a fallback.
