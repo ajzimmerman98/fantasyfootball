@@ -56,18 +56,31 @@ export function parseChart(html) {
 
 const published = (html) => (html.match(/"datePublished":"([^"]+)"/) || [])[1] || null;
 
+// The author page only lists his most recent articles, so once he posts more, some charts drop off it. Each chart
+// article links to the other positions' charts, so links found inside loaded articles fill the gaps (up to 3 rounds).
 export async function loadTradeValues() {
-  const articles = findArticles(await getText(AUTHOR_URL));
-  if (!articles.length) throw new Error("No trade value chart articles found on Boone's Yahoo author page.");
-  const charts = {}, errors = [];
-  await Promise.all(articles.map(async (a) => {
-    try {
-      const html = await getText(a.url), chart = parseChart(html);
-      if (!chart) throw new Error("no trade value table in article");
-      charts[a.pos] = { week: a.week, season: a.season, url: a.url, published: published(html), ...chart };
-    } catch (e) { errors.push(`${a.pos}: ${e.message}`); }
-  }));
-  if (!Object.keys(charts).length) throw new Error("Couldn't read any trade value charts. " + errors.join("; "));
+  let want = findArticles(await getText(AUTHOR_URL));
+  if (!want.length) throw new Error("No trade value chart articles found on Boone's Yahoo author page.");
+  const charts = {}, errors = {}, tried = new Set();
+  const newer = (a, b) => !b || a.season * 100 + a.week > b.season * 100 + b.week;
+  for (let round = 0; round < 3 && want.length; round++) {
+    const found = [];
+    await Promise.all(want.map(async (a) => {
+      tried.add(a.url);
+      try {
+        const html = await getText(a.url), chart = parseChart(html);
+        found.push(...findArticles(html));
+        if (!chart) throw new Error("no trade value table in article");
+        if (newer(a, charts[a.pos])) charts[a.pos] = { week: a.week, season: a.season, url: a.url, published: published(html), ...chart };
+        delete errors[a.pos];
+      } catch (e) { if (!charts[a.pos]) errors[a.pos] = `${a.pos}: ${e.message}`; }
+    }));
+    // Next round: positions still missing, or a newer week linked from an article
+    const best = {};
+    for (const b of found) if (!tried.has(b.url) && newer(b, best[b.pos]) && newer(b, charts[b.pos])) best[b.pos] = b;
+    want = Object.values(best);
+  }
+  if (!Object.keys(charts).length) throw new Error("Couldn't read any trade value charts. " + Object.values(errors).join("; "));
   const weeks = Object.values(charts).map((c) => c.week);
-  return { source: "Justin Boone, Yahoo Sports", week: Math.max(...weeks), season: Math.max(...Object.values(charts).map((c) => c.season)), fetched: new Date().toISOString(), charts, errors };
+  return { source: "Justin Boone, Yahoo Sports", week: Math.max(...weeks), season: Math.max(...Object.values(charts).map((c) => c.season)), fetched: new Date().toISOString(), charts, errors: Object.values(errors) };
 }

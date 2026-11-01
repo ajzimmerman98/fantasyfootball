@@ -66,6 +66,14 @@ export async function saveTradeValues(db, data) {
   if (stmts.length) await db.batch(stmts);
 }
 
+// Each position's newest saved chart (any week): fills in positions a live load couldn't find
+export async function latestTradeValues(db) {
+  const { results } = await db.prepare(`SELECT season, pos, week, published, data FROM trade_values ORDER BY season DESC, week DESC`).all();
+  const out = {};
+  for (const r of results) if (!out[r.pos]) { const d = JSON.parse(r.data); out[r.pos] = { season: r.season, week: r.week, published: r.published, url: d.url, columns: d.columns, players: d.players || [] }; }
+  return out;
+}
+
 // Each position's newest saved chart from before this week (for week-over-week trends): { pos: { week, players } }
 export async function prevTradeValues(db, season, week) {
   const { results } = await db.prepare(`SELECT pos, week, data FROM trade_values WHERE season = ? AND week < ? ORDER BY week DESC`).bind(season, week).all();

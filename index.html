@@ -487,8 +487,10 @@ function indexTV(data){
 }
 async function ensureTV(force){
   if(!apiBase())throw new Error("Trade values need the Cloudflare Worker, which isn't connected yet.");
-  if(!force&&TV&&Date.now()-TV.ts<6*3600e3)return TV;
-  if(!force)try{const c=JSON.parse(store.get("tv_cache")||"null");if(c&&Date.now()-c.ts<6*3600e3){TV={...indexTV(c.data),ts:c.ts};return TV}}catch(e){}
+  if(!force&&TV&&Date.now()-TV.ts<6*3600e3&&["QB","RB","WR","TE"].every(p=>TV.data.charts?.[p]))return TV;
+  // A saved copy missing positions (e.g. Yahoo only gave one chart) isn't reused: fetch again
+  const full=d=>d&&d.charts&&["QB","RB","WR","TE"].every(p=>d.charts[p]);
+  if(!force)try{const c=JSON.parse(store.get("tv_cache")||"null");if(c&&full(c.data)&&Date.now()-c.ts<6*3600e3){TV={...indexTV(c.data),ts:c.ts};return TV}}catch(e){}
   let r;try{r=await fetch(apiBase()+"/trade-values"+(force?"?refresh=1":""),{cache:"no-store"})}catch(e){throw new Error("Couldn't reach the trade values service.")}
   const data=await r.json().catch(()=>({}));
   if(!r.ok||!data.charts)throw new Error(data.error||`Trade values service error ${r.status}`);
@@ -598,7 +600,7 @@ async function trRun(){
 }
 function tvStatus(errs){
   const parts=[];
-  if(tvSrc()!=="fc"&&TV){const d=TV.data,stale=d.stale?` (couldn't refresh: ${d.staleReason})`:"",miss=Object.keys(d.charts).length<4?` Missing: ${["QB","RB","WR","TE"].filter(x=>!d.charts[x]).join(", ")}.`:"";parts.push(`Justin Boone's week ${d.week} trade values${stale}.${miss}`)}
+  if(tvSrc()!=="fc"&&TV){const d=TV.data,stale=d.stale?` (couldn't refresh: ${d.staleReason})`:"",miss=Object.keys(d.charts).length<4?` Missing: ${["QB","RB","WR","TE"].filter(x=>!d.charts[x]).join(", ")}.`:"";const sv=Object.entries(d.charts).filter(([,c])=>c.saved).map(([p,c])=>`${p} (week ${c.week})`);parts.push(`Justin Boone's week ${d.week} trade values${stale}.${miss}${sv.length?` Saved copy used for ${sv.join(", ")}.`:""}`)}
   if(tvSrc()!=="boone"&&Object.keys(FC).length){const t=Math.max(...Object.values(FC).map(x=>Date.parse(x.data.fetchedAt)||x.ts));parts.push(`FantasyCalc values (updated ${fmtTime(t)}).`)}
   return parts.join(" ")+(errs.length?" "+errs.join(" "):"");
 }

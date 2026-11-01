@@ -46,6 +46,12 @@ async function tradeValues(env, fresh) {
     const data = await loadTradeValues();
     if (env.DB) await store.ensureSchema(env.DB).then(async () => {
       await store.saveTradeValues(env.DB, data);
+      // A position Yahoo didn't give us this time: use its newest saved chart (marked saved)
+      const missing = ["QB", "RB", "WR", "TE"].filter((p) => !data.charts[p]);
+      if (missing.length) {
+        const saved = await store.latestTradeValues(env.DB);
+        for (const p of missing) if (saved[p] && saved[p].season === data.season) data.charts[p] = { ...saved[p], saved: true };
+      }
       // Previous week's charts, so the app can show each player's change
       data.prev = await store.prevTradeValues(env.DB, data.season, data.week);
     }).catch(() => {});
