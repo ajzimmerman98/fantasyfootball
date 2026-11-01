@@ -114,3 +114,24 @@ test("scheduled job saves every source's weekly rankings without errors", async 
   for (const s of ["boone", "ecr", "sleeper"]) assert.ok(ranked.some((k) => k.startsWith(s + ":")), s);
   assert.ok(!out.errors.some((e) => /rankings|boone|ecr|sleeper/i.test(e) && !/trade/i.test(e)), out.errors.join("; "));
 });
+
+test("trade values: charts missing from the author page are found through links in the other articles", async () => {
+  const { loadTradeValues } = await import("../worker/src/tradevalues.js");
+  const slug = (pos, id) => `/fantasy/article/2026-trade-value-charts--justin-boones-fantasy-football-${pos}-breakdown-for-week-8-${id}.html`;
+  const table = (cols) => `<table><tr><th>Rk</th><th>Player</th>${cols.map((c) => `<th>${c}</th>`).join("")}</tr><tr><td>1</td><td>Star Player</td>${cols.map(() => "<td>50</td>").join("")}</tr></table>`;
+  // Yahoo now lists only the QB article on the author page; the QB article links to the RB, WR and TE ones
+  const pages = {
+    "https://sports.yahoo.com/author/justin-boone/": `<a href="${slug("quarterback", 1)}">QB</a>`,
+    ["https://sports.yahoo.com" + slug("quarterback", 1)]: table(["1QB", "2QB"]) + ["running-back", "wide-receiver", "tight-end"].map((p, i) => `<a href="${slug(p, i + 2)}">x</a>`).join(""),
+    ["https://sports.yahoo.com" + slug("running-back", 2)]: table(["HALF", "PPR"]),
+    ["https://sports.yahoo.com" + slug("wide-receiver", 3)]: table(["HALF", "PPR"]),
+    ["https://sports.yahoo.com" + slug("tight-end", 4)]: table(["HALF", "PPR"]),
+  };
+  const real = globalThis.fetch;
+  globalThis.fetch = async (u) => (pages[String(u)] ? new Response(pages[String(u)]) : new Response("", { status: 404 }));
+  try {
+    const d = await loadTradeValues();
+    assert.deepEqual(Object.keys(d.charts).sort(), ["QB", "RB", "TE", "WR"]);
+    assert.deepEqual(d.errors, []);
+  } finally { globalThis.fetch = real; }
+});
