@@ -30,12 +30,12 @@ export const players = {
 // L1 (PPR): my starters QB Allen, RB Bijan, RB Hall, WR Jameson (DET, in progress), WR Metcalf (PIT, final), TE Hockenson, FLEX Cooper;
 // bench: Germie Bernard (PIT, final) and Drake Maye. L2 (half-PPR) is a second, smaller league.
 export const leagues = [
-  { league_id: "L1", name: "Sleeper League", roster_positions: ["QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "BN", "BN"], scoring_settings: { rec: 1 }, total_rosters: 2, settings: { playoff_week_start: 15 } },
+  { league_id: "L1", name: "Sleeper League", roster_positions: ["QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "BN", "BN"], scoring_settings: { rec: 1 }, total_rosters: 2, settings: { playoff_week_start: 15, playoff_teams: 1 } },
   { league_id: "L2", name: "Half League", roster_positions: ["QB", "RB", "BN"], scoring_settings: { rec: 0.5 }, total_rosters: 2, settings: { playoff_week_start: 15 } },
 ];
 const rosters = {
-  L1: [{ roster_id: 1, owner_id: "U1", players: ["7", "1", "2", "3", "4", "5", "6", "8", "9"], starters: ["7", "1", "2", "3", "4", "5", "6"] },
-       { roster_id: 2, owner_id: "U2", players: ["20", "21", "22", "23", "24", "MIN"], starters: ["20", "21", "22", "23", "24"] }],
+  L1: [{ roster_id: 1, owner_id: "U1", players: ["7", "1", "2", "3", "4", "5", "6", "8", "9"], starters: ["7", "1", "2", "3", "4", "5", "6"], settings: { wins: 4, losses: 3, fpts: 840, fpts_decimal: 50 } },
+       { roster_id: 2, owner_id: "U2", players: ["20", "21", "22", "23", "24", "MIN"], starters: ["20", "21", "22", "23", "24"], settings: { wins: 3, losses: 4, fpts: 820 } }],
   L2: [{ roster_id: 1, owner_id: "U1", players: ["7", "1"], starters: ["7", "1"] }, { roster_id: 2, owner_id: "U2", players: ["9"], starters: ["9"] }],
 };
 const users = { L1: [{ user_id: "U1", display_name: "aj" }, { user_id: "U2", display_name: "rival", metadata: { team_name: "Rival FC" } }],
@@ -56,7 +56,13 @@ export function sleeper(pathname) {
   if (p === "/players/nfl/trending/add") return [{ player_id: "30", count: 12345 }, { player_id: "31", count: 800 }];
   if ((m = p.match(/^\/league\/(L\d)\/rosters$/))) return rosters[m[1]];
   if ((m = p.match(/^\/league\/(L\d)\/users$/))) return users[m[1]];
-  if ((m = p.match(/^\/league\/(L\d)\/matchups\/(\d+)$/))) return +m[2] === WEEK ? matchups[m[1]] : [];
+  if ((m = p.match(/^\/league\/(L\d)\/matchups\/(\d+)$/))) {
+    const w = +m[2];
+    if (w === WEEK) return matchups[m[1]];
+    // Rest of the regular season (weeks 9-14): the same two teams meet, nothing scored yet
+    if (w > WEEK && w < 15) return matchups[m[1]].map((x) => ({ ...x, points: 0 }));
+    return [];
+  }
   if ((m = p.match(/^\/league\/(L\d)\/winners_bracket$/))) return [];
   if ((m = p.match(/^\/league\/(L\d)$/))) return { ...leagues.find((l) => l.league_id === m[1]), season: SEASON, status: "in_season", previous_league_id: null };
   return [];

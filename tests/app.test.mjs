@@ -193,3 +193,38 @@ test("no Doubtful or debug checkboxes; ?debug still shows the debug table", asyn
   await build(dbg.page);
   assert.ok((await dbg.page.$$("#out details.dbg")).length > 0);
 });
+
+test("playoff odds: the simulation behaves sensibly", async () => {
+  const { page } = await openApp();
+  const r = await page.evaluate(() => {
+    // Seeded random numbers so the result is the same every run
+    const rng = ((a) => () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; })(42);
+    const team = (id, w, mean) => ({ id, w, l: 7 - w, t: 0, pf: mean * 7, mean, meanNow: mean });
+    const weeks = Array.from({ length: 6 }, (_, k) => k % 2 ? [[1, 2], [3, 4]] : [[1, 3], [2, 4]]);
+    const even = simulateSeason({ teams: [1, 2, 3, 4].map((id) => team(id, 3, 110)), weeks, nPO: 2, sims: 4000, rng, me: 0 });
+    const lop = simulateSeason({ teams: [team(1, 7, 140), team(2, 0, 90), team(3, 3, 110), team(4, 3, 110)], weeks, nPO: 2, sims: 4000, rng });
+    const six = simulateSeason({ teams: Array.from({ length: 10 }, (_, k) => team(k + 1, 3, 110)), weeks: [[[1, 2], [3, 4], [5, 6], [7, 8], [9, 10]]], nPO: 6, sims: 500, rng });
+    return { even: even.teams.map((t) => t.po), what: even.what, lop: lop.teams.map((t) => ({ po: t.po, champ: t.champ })), sixByes: six.byes, order: bracketOrder(8) };
+  });
+  for (const p of r.even) assert.ok(Math.abs(p - 0.5) < 0.06, "even teams ~50%: " + p);
+  assert.ok(r.what.win > r.what.lose + 0.2, "winning this week helps");
+  assert.ok(r.lop[0].po > 0.99 && r.lop[1].po < 0.01, "7-0 juggernaut in, 0-7 out");
+  assert.ok(r.lop[0].champ > 0.6);
+  assert.equal(r.sixByes, 2);
+  assert.deepEqual(r.order, [1, 8, 4, 5, 2, 7, 3, 6]);
+});
+
+test("playoff odds card on the Power Rankings tab", async () => {
+  const { page, errors } = await openApp();
+  await page.click("#tb_power");
+  await page.click("#pw_go");
+  await page.waitForFunction(() => /Your playoff odds/.test(document.getElementById("po_out").textContent), null, { timeout: 30000 });
+  const t = await text(page, "#po_out");
+  assert.match(t, /Playoff odds 1 of 2 teams make it · 7 weeks left · 10,000 simulations\./);
+  assert.match(t, /Your playoff odds: \d+% · if you win this week \d+% · if you lose \d+%/);
+  assert.match(t, /aj \(you\) \d+% 4-3 now · projected [\d.]+ wins of 14 · title \d+%/);
+  const odds = [...t.matchAll(/(?:aj \(you\)|Rival FC) (\d+)%/g)].map((m) => +m[1]);
+  assert.equal(odds.length, 2);
+  assert.ok(Math.abs(odds[0] + odds[1] - 100) <= 1, "one playoff spot: odds add up to 100%");
+  assert.deepEqual(errors, []);
+});
