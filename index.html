@@ -592,8 +592,8 @@ async function loadSaved(){
   const el=$("saved");if(!synced()){el.innerHTML="";return}
   try{
     const {builds}=await me("/builds?limit=30");
-    if(!builds.length){el.innerHTML=`<div class="card"><h2>Saved lineups</h2><div class="ok">Builds are saved here each time you tap Build my lineups.</div></div>`;return}
-    el.innerHTML=`<h2 style="font-size:17px;margin:20px 0 4px">Saved lineups</h2>`+builds.map(b=>{const [t,c]=buildStatus(b),r=b.result||{};
+    if(!builds.length){el.innerHTML=`<div class="card"><h2>Saved lineups</h2><div class="ok">Your latest build for each league is saved here when you tap Build my lineups.</div></div>`;return}
+    el.innerHTML=`<h2 style="font-size:17px;margin:20px 0 4px">Saved lineups</h2><div class="ok">Latest build for each league. Building again replaces it.</div>`+builds.map(b=>{const [t,c]=buildStatus(b),r=b.result||{};
       return`<details class="sv"><summary><b>${esc(b.leagueName||"League")}</b> <span class="r">· Week ${b.week??"?"}</span><span class="when">Built ${esc(fmtTime(Date.parse(b.createdAt)))}${b.scoring?" · "+(b.scoring==="HALF"?"half-PPR":"PPR"):""}</span><span class="badge ${c}">${esc(t)}</span></summary><div class="body">`+
         (r.slots||[]).map(x=>`<div class="slot"><span class="s">${esc(x.slot.replace("_"," "))}</span><span>${x.name?esc(x.name)+` <span class="r">${esc(x.pos)} ${esc(x.team)}</span>`:"Nobody eligible"}</span><span class="r">${esc(x.rank||"")}</span></div>`).join("")+
         `<div class="swaps">${!(r.starts||[]).length&&!(r.sits||[]).length?'<div class="ok">No changes were needed.</div>':(r.starts||[]).map(x=>`<div><span class="start">START</span> ${esc(x)}</div>`).join("")+(r.sits||[]).map(x=>`<div><span class="sit">SIT</span> ${esc(x)}</div>`).join("")}</div>`+
