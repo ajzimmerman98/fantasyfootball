@@ -18,8 +18,8 @@ Private (send `Authorization: Bearer <ACCESS_CODE>`):
 | Endpoint | What it does |
 |---|---|
 | `GET` / `PUT /me/profile` | Sleeper username and app settings. |
-| `GET /me/builds?limit` | Saved lineup builds, newest first, each with `latestPub` (newest Boone rankings for its week) so the app can mark it expired. |
-| `POST /me/builds` | Save builds: `{ "builds": [...] }`. Keeps the newest 200. |
+| `GET /me/builds?limit` | Saved lineup builds (the latest one per league), newest first, each with `latestPub` (newest Boone rankings for its week) so the app can mark it expired. |
+| `POST /me/builds` | Save builds: `{ "builds": [...] }`. Each replaces that league's previous build. |
 | `DELETE /me/builds/:id` | Delete one build. |
 | `GET /me/espn?season` | Your ESPN leagues (IDs saved in profile `settings.espnLeagues`), converted to the app's Sleeper-style league shape: slots, scoring, every team's roster and current lineup. |
 
