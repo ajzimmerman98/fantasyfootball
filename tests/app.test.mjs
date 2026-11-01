@@ -162,3 +162,34 @@ test("install as an app: manifest, icons and offline start", async () => {
     assert.equal(await page.title(), "Boone Lineups");
   } finally { await ctx.close(); server.close(); }
 });
+
+test("tabs load on their own when the username is remembered; flipping back doesn't reload", async () => {
+  const calls = [];
+  const { page, errors } = await openApp({ remembered: true, sleeperCalls: calls });
+  // The Lineup tab builds without a click
+  await page.waitForFunction(() => / updated /.test(document.getElementById("status").textContent), null, { timeout: 30000 });
+  assert.match(await text(page, "#out"), /Sleeper League/);
+  await page.click("#tb_fa");
+  await page.waitForSelector("#fa_ui:not([hidden])", { timeout: 30000 });
+  await page.click("#tb_power");
+  await page.waitForFunction(() => document.querySelectorAll("#pw_out details.pw").length === 2, null, { timeout: 30000 });
+  await page.click("#tb_weather");
+  await page.waitForFunction(() => /Week 8/.test(document.getElementById("w_status").textContent), null, { timeout: 30000 });
+  // Back to Lineup: already loaded, so no new Sleeper requests
+  const before = calls.length;
+  await page.click("#tb_lineup");
+  await page.waitForTimeout(500);
+  assert.equal(calls.length, before);
+  // The tabs share one Sleeper load within a minute: the user lookup happened once (the button always reloads)
+  assert.equal(calls.filter((p) => p === "/v1/user/aj").length, 1);
+  assert.deepEqual(errors, []);
+});
+
+test("no Doubtful or debug checkboxes; ?debug still shows the debug table", async () => {
+  const plain = await openApp();
+  assert.equal(await plain.page.$("#doubt"), null);
+  assert.equal(await plain.page.$("#debug"), null);
+  const dbg = await openApp({ query: "?debug" });
+  await build(dbg.page);
+  assert.ok((await dbg.page.$$("#out details.dbg")).length > 0);
+});

@@ -125,8 +125,6 @@ select.full{width:100%;height:44px}
 <section class="panel" id="p_lineup" role="tabpanel" aria-labelledby="tb_lineup">
 <label>Rankings</label>
 <div class="loadrow" style="margin-top:0"><select id="rsrc" style="flex:1;height:44px" aria-label="Rankings source"><option value="boone">Justin Boone</option><option value="ecr">FantasyPros</option><option value="sleeper">Sleeper projections</option></select></div>
-<div class="row"><input id="doubt" type="checkbox"><label for="doubt" style="margin:0;color:var(--text)">Allow Doubtful players</label></div>
-<div class="row"><input id="debug" type="checkbox"><label for="debug" style="margin:0;color:var(--text)">Show debug info</label></div>
 <button id="go">Build my lineups</button>
 <div id="status"></div>
 <div id="l_warn" class="fwarn" hidden></div>
@@ -191,6 +189,7 @@ select.full{width:100%;height:44px}
 <div id="install" class="install" hidden><span id="install_txt"></span><button id="install_go" class="mini" hidden>Install</button><button id="install_x" class="mini ghost" aria-label="Dismiss">✕</button></div>
 <script>
 const API="https://api.sleeper.app/v1";
+const DEBUG=/[?&]debug\b/.test(location.search);
 const STRICT=new Set(["QB","RB","WR","TE","K","DEF"]);
 const FLEX={FLEX:["RB","WR","TE"],REC_FLEX:["WR","TE"],WRRB_FLEX:["WR","RB"],SUPER_FLEX:["QB","RB","WR","TE"]};
 const FLEX_ORDER=["REC_FLEX","WRRB_FLEX","FLEX","SUPER_FLEX"];
@@ -380,7 +379,16 @@ function currentStarters(roster,matchups,week){
 }
 
 // Shared by every tab: user, leagues, my roster and current starters in each league, player data
-async function loadSleeper(user,force,st){
+// reuse = an automatic tab load: share a Sleeper load from the last minute instead of fetching again.
+// Buttons always load fresh, so lineup changes just made in the Sleeper app show up.
+let SLC=null;
+function loadSleeper(user,force,st,reuse){
+  if(reuse&&!force&&SLC&&SLC.user===user&&Date.now()-SLC.ts<60e3)return SLC.p;
+  const p=loadSleeperFresh(user,force,st);SLC={user,ts:Date.now(),p};
+  p.catch(()=>{if(SLC&&SLC.p===p)SLC=null});
+  return p;
+}
+async function loadSleeperFresh(user,force,st){
   st.textContent="Loading Sleeper data…";
   const [state,u]=await Promise.all([api("/state/nfl",true),api("/user/"+encodeURIComponent(user))]);
   if(!u||!u.user_id)throw new Error("Sleeper user not found.");
@@ -414,14 +422,14 @@ async function addEspn(season,myId,leagues,rosters,matchups,players,st){
   }
   return d.errors||[];
 }
-async function run(force){
+async function run(force,auto){
   const user=$("user").value.trim(),source=$("rsrc").value;
-  store.set("user",user);store.set("doubt",$("doubt").checked?"1":"0");store.set("debug",$("debug").checked?"1":"0");
+  store.set("user",user);
   const out=$("out"),st=$("status");out.innerHTML="";showWarn("l_warn",[]);
   if(!user){st.textContent="Enter your Sleeper username.";return}
   $("go").disabled=true;
   try{
-    const {state,week,leagues,players,rosters,matchups,mineAll,curAll,espnErrors}=await loadSleeper(user,force,st);
+    const {state,week,leagues,players,rosters,matchups,mineAll,curAll,espnErrors}=await loadSleeper(user,force,st,auto);
     store.set("cur_week",String(week));
     const idx=leagues.map((lg,i)=>mineAll[i]?i:-1).filter(i=>i>=0);
     const scOf=lg=>leagueFormat(lg).sc;
@@ -443,7 +451,8 @@ async function run(force){
     st.textContent=`Season ${state.season}, week ${week}. ${idx.length} league(s). ${srcLabel(source)}${source==="sleeper"?"":" rankings"} updated ${fmtTime(Math.max(...Object.values(pubs)))}.`+
       espnErrors.map(e=>` ESPN ${e.leagueId}: ${e.error}`).join("");
     showWarn("l_warn",[...rk.map(r=>r.warn),...pj.map(r=>r&&r.warn),Object.keys(P).length?null:"Sleeper projections didn't load, so projected points and the matchup preview are missing.",...(apiBase()?valueWarns():[])]);
-    const opts={allowDoubt:$("doubt").checked,debug:$("debug").checked,collect:[]};
+    // Doubtful players aren't started; the per-slot debug table shows only with ?debug in the address
+    const opts={allowDoubt:false,debug:DEBUG,collect:[]};
     leagues.forEach((lg,i)=>{
       const mine=mineAll[i],sc=scOf(lg),ranks=R[sc];
       if(!mine){out.insertAdjacentHTML("beforeend",`<div class="card"><h2>${esc(lg.name)}</h2><div class="ok">Couldn't find your roster.</div></div>`);return}
@@ -578,12 +587,12 @@ async function ensureValues(leagues,force){
 }
 
 let TR=null; // trades tab state
-async function trRun(){
+async function trRun(auto){
   const user=$("user").value.trim(),st=$("tr_status");store.set("user",user);
   if(!user){st.textContent="Enter your Sleeper username.";return}
   $("tr_go").disabled=true;
   try{
-    const sl=await loadSleeper(user,false,st);
+    const sl=await loadSleeper(user,false,st,auto);
     st.textContent=`Loading ${tvName()} values…`;
     const verr=await ensureValues(sl.leagues.filter((lg,i)=>sl.mineAll[i]));
     if(tvSrc()!=="avg"&&verr.length)throw new Error(verr[0].replace(/^[^:]+: /,""));
@@ -638,7 +647,7 @@ function trSum(){
   const note=TR.give.size!==TR.get.size?`<div class="ok" style="margin-top:4px">Totals don't count roster spots: in a ${Math.max(TR.give.size,TR.get.size)}-for-${Math.min(TR.give.size,TR.get.size)||1}, the side getting the single best player often wins even when the sums are close.</div>`:"";
   el.innerHTML=`You give <b>${g}</b> · You get <b>${r}</b><div class="big">${verdict}</div>${note}`;
 }
-$("tr_go").onclick=trRun;
+$("tr_go").onclick=()=>trRun();
 $("tr_vsrc").value=TV_SRC[store.get("tv_src")]?store.get("tv_src"):"boone";
 $("tr_vsrc").onchange=async()=>{store.set("tv_src",$("tr_vsrc").value);saveProfile();if(!TR)return;const st=$("tr_status");st.textContent=`Loading ${tvName()} values…`;
   const errs=await ensureValues(TR.sl.leagues.filter((lg,i)=>TR.sl.mineAll[i]));st.textContent=tvStatus(errs);showWarn("tr_warn",valueWarns());$("tr_ideas").innerHTML="";await trLeague()};
@@ -723,7 +732,7 @@ async function me(path,opt={}){
   if(!r.ok)throw new Error(d.error||`Sync error ${r.status}`);
   return d;
 }
-const settingsNow=()=>({rankSource:$("rsrc").value,faSource:$("fa_src").value,tvSource:$("tr_vsrc").value,pwSource:$("pw_src").value,doubt:$("doubt").checked,debug:$("debug").checked,espnLeagues:espnIds()});
+const settingsNow=()=>({rankSource:$("rsrc").value,faSource:$("fa_src").value,tvSource:$("tr_vsrc").value,pwSource:$("pw_src").value,espnLeagues:espnIds()});
 let profTimer=null;
 function saveProfile(){if(!synced())return;clearTimeout(profTimer);profTimer=setTimeout(()=>me("/profile",{method:"PUT",body:JSON.stringify({sleeperUsername:$("user").value.trim(),settings:settingsNow()})}).catch(()=>{}),800)}
 // Sync is for the owner only: shown on browsers connected with the access code, or marked once by opening the app with ?owner
@@ -739,7 +748,7 @@ async function connectSync(code){
     if(p.sleeperUsername&&!$("user").value.trim()){$("user").value=p.sleeperUsername;store.set("user",p.sleeperUsername)}
     const st=p.settings||{};
     if(!p.updatedAt)saveProfile();
-    else{if(SRC_NAME[st.rankSource])($("rsrc").value=st.rankSource,store.set("rsrc",st.rankSource));if(PW_SRC[st.pwSource])($("pw_src").value=st.pwSource,store.set("pw_src",st.pwSource));if(TV_SRC[st.tvSource])($("tr_vsrc").value=st.tvSource,store.set("tv_src",st.tvSource));if(st.faSource&&$("fa_src").querySelector(`option[value="${st.faSource}"]`))($("fa_src").value=st.faSource,store.set("fa_src",st.faSource));if(typeof st.doubt==="boolean")$("doubt").checked=st.doubt;if(typeof st.debug==="boolean")$("debug").checked=st.debug;if(Array.isArray(st.espnLeagues)){store.set("espn_leagues",st.espnLeagues.join(", "));$("espn_ids").value=store.get("espn_leagues")}}
+    else{if(SRC_NAME[st.rankSource])($("rsrc").value=st.rankSource,store.set("rsrc",st.rankSource));if(PW_SRC[st.pwSource])($("pw_src").value=st.pwSource,store.set("pw_src",st.pwSource));if(TV_SRC[st.tvSource])($("tr_vsrc").value=st.tvSource,store.set("tv_src",st.tvSource));if(st.faSource&&$("fa_src").querySelector(`option[value="${st.faSource}"]`))($("fa_src").value=st.faSource,store.set("fa_src",st.faSource));if(Array.isArray(st.espnLeagues)){store.set("espn_leagues",st.espnLeagues.join(", "));$("espn_ids").value=store.get("espn_leagues")}}
     msg.textContent="";syncUI();await loadSaved();
   }catch(e){store.set("acode","");syncUI();msg.innerHTML=`<span class="err">${esc(e.message)}</span>`}
 }
@@ -772,7 +781,7 @@ $("acode_go").onclick=()=>{const c=$("acode").value.trim();if(c)connectSync(c)};
 $("acode").addEventListener("keydown",e=>{if(e.key==="Enter")$("acode_go").click()});
 $("acode_off").onclick=()=>{store.set("acode","");$("acode").value="";syncUI()};
 $("saved").addEventListener("click",async e=>{const id=e.target.dataset.del;if(!id)return;e.target.disabled=true;try{await me("/builds/"+id,{method:"DELETE"});await loadSaved()}catch(err){e.target.textContent="Couldn't delete"}});
-$("user").addEventListener("change",saveProfile);$("doubt").addEventListener("change",saveProfile);
+$("user").addEventListener("change",saveProfile);
 $("espn_ids").value=store.get("espn_leagues")||"";
 $("espn_ids").addEventListener("change",()=>{store.set("espn_leagues",$("espn_ids").value);store.set("espn_leagues",espnIds().join(", "));$("espn_ids").value=store.get("espn_leagues");saveProfile()});
 
@@ -956,13 +965,13 @@ function gameInfo(state,week){
   GI[k]={ts:Date.now(),p};p.catch(()=>{delete GI[k]});return p;
 }
 let wxData=null;
-async function wxRun(){
+async function wxRun(auto){
   const user=$("user").value.trim(),st=$("w_status");store.set("user",user);
   $("w_out").innerHTML="";
   if(!user){st.textContent="Enter your Sleeper username.";return}
   $("w_go").disabled=true;
   try{
-    const sl=await loadSleeper(user,false,st);
+    const sl=await loadSleeper(user,false,st,auto);
     st.textContent="Loading NFL schedule…";
     const games=await loadSchedule(sl.state,sl.week);
     if(!games.length)throw new Error(`No games found for week ${sl.week}.`);
@@ -1014,7 +1023,7 @@ function wxRender(){
   $("w_status").textContent=`Week ${week}: ${shown} game(s)${allGames?"":onlyStart?" with your starters":" with your players"}. ★ = starting in at least one league.`;
 }
 $("w_starters").checked=store.get("w_starters")!=="0";$("w_allgames").checked=store.get("w_allgames")==="1";
-$("w_go").onclick=wxRun;$("w_starters").onchange=wxRender;$("w_allgames").onchange=wxRender;
+$("w_go").onclick=()=>wxRun();$("w_starters").onchange=wxRender;$("w_allgames").onchange=wxRender;
 
 // ---------- Free Agents tab ----------
 // Free agents = ranked players on no roster in the league. Each one is checked against your own players at his position:
@@ -1040,13 +1049,13 @@ async function valueLists(source,f){
   const qb=mk(rows.filter(p=>p.pos==="QB")).map(p=>({...p,pos:""})),fl=mk(rows.filter(p=>p.pos!=="QB"));
   return LISTS.map(([k])=>k==="QB"?{ps:qb,pub}:k==="FLEX"?{ps:fl,pub}:{ps:[],pub:0});
 }
-async function faRun(){
+async function faRun(auto){
   const user=$("user").value.trim(),st=$("fa_status");store.set("user",user);
   if(!user){st.textContent="Enter your Sleeper username.";return}
   const [source,kind]=$("fa_src").value.split(":");
   $("fa_go").disabled=true;showWarn("fa_warn",[]);
   try{
-    const sl=FA&&FA.user===user&&Date.now()-FA.ts<10*60e3?FA.sl:await loadSleeper(user,false,st);
+    const sl=auto&&FA&&FA.user===user&&Date.now()-FA.ts<10*60e3?FA.sl:await loadSleeper(user,false,st,auto);
     const idx=sl.leagues.map((lg,i)=>sl.mineAll[i]?i:-1).filter(i=>i>=0);
     if(!idx.length)throw new Error("No leagues with your roster found.");
     store.set("cur_week",String(sl.week));
@@ -1114,12 +1123,12 @@ function faRender(){
 }
 $("fa_src").value=store.get("fa_src")||"boone:week";if(!$("fa_src").value)$("fa_src").value="boone:week";
 $("fa_pos").value=store.get("fa_pos")||"ALL";if(!$("fa_pos").value)$("fa_pos").value="ALL";
-$("fa_go").onclick=faRun;$("fa_league").onchange=faRender;$("fa_pos").onchange=faRender;
-$("fa_src").onchange=()=>{store.set("fa_src",$("fa_src").value);saveProfile();if(FA)faRun()};
+$("fa_go").onclick=()=>faRun();$("fa_league").onchange=faRender;$("fa_pos").onchange=faRender;
+$("fa_src").onchange=()=>{store.set("fa_src",$("fa_src").value);saveProfile();if(FA)faRun(true)};
 $("rsrc").value=SRC_NAME[store.get("rsrc")]?store.get("rsrc"):"boone";
-$("rsrc").onchange=()=>{store.set("rsrc",$("rsrc").value);saveProfile()};
+$("rsrc").onchange=()=>{store.set("rsrc",$("rsrc").value);saveProfile();if($("out").innerHTML&&!$("go").disabled)run(false,true)};
 
-$("user").value=store.get("user")||"";syncUI();sleeperWeek().catch(()=>{}).then(()=>{if(synced())loadSaved()});$("doubt").checked=store.get("doubt")==="1";$("debug").checked=store.get("debug")==="1";
+$("user").value=store.get("user")||"";syncUI();sleeperWeek().catch(()=>{}).then(()=>{if(synced())loadSaved()});
 // ---------- Power rankings tab ----------
 // Score = best starting lineup (full value) + depth (best bench players at decreasing weights), rest-of-season values.
 const PW_DEPTH=[0.35,0.3,0.25,0.2,0.15,0.1];
@@ -1132,12 +1141,12 @@ const rankPts=(sec,r)=>{const [a,b]=PTS_CURVE[sec];return Math.round(a*Math.pow(
 // FantasyPros gives ranks, not values: #1 = 100, falling ~1.5% per FLEX rank; QBs on their own curve (lower in 1QB leagues)
 const fpCurve=(r,qb,sf)=>qb?(sf?100:40)*Math.pow(0.95,r-1):100*Math.pow(0.985,r-1);
 let PW=null;
-async function pwRun(){
+async function pwRun(auto){
   const user=$("user").value.trim(),st=$("pw_status"),src=$("pw_src").value;store.set("user",user);
   if(!user){st.textContent="Enter your Sleeper username.";return}
   $("pw_go").disabled=true;
   try{
-    const sl=PW&&PW.user===user&&Date.now()-PW.ts<10*60e3?PW.sl:await loadSleeper(user,false,st);
+    const sl=auto&&PW&&PW.user===user&&Date.now()-PW.ts<10*60e3?PW.sl:await loadSleeper(user,false,st,auto);
     const idx=sl.leagues.map((lg,i)=>sl.mineAll[i]?i:-1).filter(i=>i>=0);
     if(!idx.length)throw new Error("No leagues with your roster found.");
     st.textContent=`Loading ${PW_SRC[src]}…`;showWarn("pw_warn",[]);
@@ -1204,8 +1213,8 @@ async function pwRender(){
         `<div class="body"><h3>${wk?"This week's best lineup":"Starting lineup"}</h3>${order.map(id=>nm(id,x.val)).join("")||'<div class="ok">No valued players.</div>'}${wk?"":`<h3>Depth</h3>${x.bench.map(id=>nm(id,x.val)).join("")||'<div class="ok">No valued bench players.</div>'}`}</div></details>`}).join("");
 }
 $("pw_src").value=PW_SRC[store.get("pw_src")]?store.get("pw_src"):"boone";
-$("pw_go").onclick=pwRun;$("pw_league").onchange=()=>pwRender().catch(e=>$("pw_status").innerHTML=`<span class="err">${esc(e.message)}</span>`);
-$("pw_src").onchange=()=>{store.set("pw_src",$("pw_src").value);saveProfile();if(PW)pwRun()};
+$("pw_go").onclick=()=>pwRun();$("pw_league").onchange=()=>pwRender().catch(e=>$("pw_status").innerHTML=`<span class="err">${esc(e.message)}</span>`);
+$("pw_src").onchange=()=>{store.set("pw_src",$("pw_src").value);saveProfile();if(PW)pwRun(true)};
 
 // ---------- League history tab ----------
 // Walks a Sleeper league back through previous_league_id. Each season: users, rosters, winners bracket and regular-season
@@ -1233,12 +1242,12 @@ async function histSeason(id,curWeek){
   return out;
 }
 let HI=null;
-async function hiRun(){
+async function hiRun(auto){
   const user=$("user").value.trim(),st=$("hi_status");store.set("user",user);
   if(!user){st.textContent="Enter your Sleeper username.";return}
   $("hi_go").disabled=true;
   try{
-    const sl=await loadSleeper(user,false,st);
+    const sl=await loadSleeper(user,false,st,auto);
     const idx=sl.leagues.map((lg,i)=>sl.mineAll[i]&&lg.provider!=="espn"?i:-1).filter(i=>i>=0);
     if(!idx.length)throw new Error("No Sleeper leagues with your roster found.");
     HI={sl,data:{},me:sl.userId};
@@ -1345,7 +1354,7 @@ function hiRender(){
   h+=`<div class="card hcard"><h2>Season by season</h2>`+seasonRows.slice().reverse().map(({s,tm,top,pts})=>`<div class="hrow"><span><b>${s.season}</b>${s.done?"":` <span class="r">(${s.weeks?`through week ${s.weeks}`:"not started"})</span>`}</span><span class="r">${s.games.length} games</span><div class="m">${s.champ?`Champion ${esc(tm(s.champ))}${s.third?` · 3rd ${esc(tm(s.third))}`:""} · `:""}${top?`Best record ${esc(tm(top[0]))} ${rec(top[1])}`:""}${pts?` · Most points ${esc(tm(pts[0]))} ${num(pts[1].pf)}`:""}</div></div>`).join("")+`</div>`;
   $("hi_out").innerHTML=h;
 }
-$("hi_go").onclick=hiRun;
+$("hi_go").onclick=()=>hiRun();
 $("hi_league").onchange=()=>hiLoad().catch(e=>$("hi_status").innerHTML=`<span class="err">${esc(e.message)}</span>`);
 $("hi_out").addEventListener("change",e=>{if(e.target.id==="hi_who"){HI.who=e.target.value;hiRender()}});
 
@@ -1365,7 +1374,18 @@ const TABS=["lineup","fa","weather","trade","power","hist"];
 function showTab(t){if(!TABS.includes(t))t="lineup";
   for(const k of TABS){$("p_"+k).hidden=k!==t;$("tb_"+k).setAttribute("aria-selected",String(k===t))}
   store.set("tab",t);if(location.hash!=="#"+t)history.replaceState(null,"","#"+t);
+  autoLoad(t);
 }
+// Opening a tab loads it (when a Sleeper username is set), unless it loaded in the last 10 minutes or is loading now.
+// The buttons stay for a manual refresh.
+const AUTO={lineup:["go",()=>run(false,true)],fa:["fa_go",()=>faRun(true)],weather:["w_go",()=>wxRun(true)],trade:["tr_go",()=>trRun(true)],power:["pw_go",()=>pwRun(true)],hist:["hi_go",()=>hiRun(true)]};
+let loadedAt={};
+function autoLoad(t){
+  const a=AUTO[t];if(!a||!$("user").value.trim()||$(a[0]).disabled||Date.now()-(loadedAt[t]||0)<10*60e3)return;
+  loadedAt[t]=Date.now();a[1]();
+}
+// A new username: everything reloads for it
+$("user").addEventListener("change",()=>{loadedAt={};SLC=null;FA=PW=null;autoLoad(store.get("tab")||"lineup")});
 document.querySelector(".tabs").addEventListener("click",e=>{const t=e.target.dataset.tab;if(t)showTab(t)});
 window.addEventListener("hashchange",()=>showTab(location.hash.slice(1)));
 showTab(location.hash.slice(1)||store.get("tab")||"lineup");
