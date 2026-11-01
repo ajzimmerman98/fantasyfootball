@@ -36,7 +36,7 @@ Imported from GitHub in **Workers & Pages** as `boone-api`, with **Path** (root 
 ### 2. Database
 1. In the Cloudflare dashboard, go to **Storage & databases → D1 SQL database → Create**.
 2. Name it `boone-db` and create it.
-3. Copy its **Database ID** into `database_id` in `wrangler.jsonc`.
+3. Copy its **Database ID** into `database_id` in `wrangler.jsonc` (done: `f4b84556-c324-4e64-9b15-3986d08cddb5`).
 
 ### 3. Access code
 1. Open the `boone-api` Worker → **Settings → Variables and Secrets → Add**.

@@ -8,7 +8,7 @@
   "observability": { "enabled": true },
   // D1 database for profile, saved lineups, and rankings/trade value history. Tables are created on first use.
   "d1_databases": [
-    { "binding": "DB", "database_name": "boone-db", "database_id": "REPLACE_WITH_D1_DATABASE_ID" }
+    { "binding": "DB", "database_name": "boone-db", "database_id": "f4b84556-c324-4e64-9b15-3986d08cddb5" }
   ],
   // Every 3 hours: save new versions of Boone's rankings and trade value charts
   "triggers": { "crons": ["17 */3 * * *"] }
