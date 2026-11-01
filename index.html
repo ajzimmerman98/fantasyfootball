@@ -100,6 +100,8 @@ select.full{width:100%;height:44px}
 .tr-up{color:var(--good);font-size:11px;font-weight:600}.tr-dn{color:var(--bad);font-size:11px;font-weight:600}
 .fwarn{background:var(--card);border:1px solid var(--warn);color:var(--text);border-radius:10px;padding:8px 10px;margin:4px 0 10px;font-size:13px}.fwarn div+div{margin-top:4px}
 .gm{font-size:12px;color:var(--muted);margin-top:1px}.gm .chip{font-size:11px;padding:0 6px;margin:0 0 0 5px;vertical-align:1px}
+.po .hrow b{font-size:15px}.po .bar2{grid-column:1/3;height:4px;border-radius:2px;background:var(--line);overflow:hidden;margin-top:3px}.po .bar2 i{display:block;height:100%;background:var(--good)}
+.po .wi{background:var(--bg);border-radius:10px;padding:8px 10px;margin:4px 0 8px;font-size:14px}.po .wi b{font-size:14px}
 .idea .meta{color:var(--muted);font-size:13px;margin-top:6px}.idea .meta .up{color:var(--good);font-weight:600}.idea .meta .down{color:var(--warn);font-weight:600}.idea button{margin-top:8px;padding:9px;font-size:15px}
 </style>
 </head>
@@ -168,8 +170,8 @@ select.full{width:100%;height:44px}
 <div class="loadrow"><button id="pw_go">Rank teams</button></div>
 <div id="pw_status" class="status"></div>
 <div id="pw_warn" class="fwarn" hidden></div>
-<div id="pw_ui" hidden><select id="pw_league" class="full" aria-label="League"></select><div id="pw_out"></div></div>
-<small>Rest of season: score = starting lineup + depth. Starting lineup is the best lineup each roster can field (QB, RB, WR, TE and flex spots) at full value. Depth adds the six best bench players at 35%, 30%, 25%, 20%, 15% and 10% of their value. IR and taxi players don't count; kickers and defenses aren't valued. FantasyPros ranks are turned into values on a curve (#1 = 100; QBs scaled lower in 1QB leagues) so they can be added up. Each league uses its own format.<br><br>This week: score = projected points of the best starting lineup each team can field this week, kickers and defenses included; players who are out or on bye don't count, and the bench doesn't either. Sleeper projections use Sleeper's projected points; Justin Boone and FantasyPros ranks are turned into estimated points on a curve for each position (e.g. FLEX #1 ≈ 24, #50 ≈ 11.5).</small>
+<div id="pw_ui" hidden><select id="pw_league" class="full" aria-label="League"></select><div id="pw_out"></div><div id="po_out"></div></div>
+<small>Rest of season: score = starting lineup + depth. Starting lineup is the best lineup each roster can field (QB, RB, WR, TE and flex spots) at full value. Depth adds the six best bench players at 35%, 30%, 25%, 20%, 15% and 10% of their value. IR and taxi players don't count; kickers and defenses aren't valued. FantasyPros ranks are turned into values on a curve (#1 = 100; QBs scaled lower in 1QB leagues) so they can be added up. Each league uses its own format.<br><br>This week: score = projected points of the best starting lineup each team can field this week, kickers and defenses included; players who are out or on bye don't count, and the bench doesn't either. Sleeper projections use Sleeper's projected points; Justin Boone and FantasyPros ranks are turned into estimated points on a curve for each position (e.g. FLEX #1 ≈ 24, #50 ≈ 11.5).<br><br>Playoff odds (Sleeper leagues): the rest of the regular season is played out 10,000 times on the league's real schedule, starting from the current standings. Each team's score is drawn around its strength: this week, Sleeper's projection for its best lineup; later weeks, that blended with its points per game so far. Seeds go by wins, then points for; the league's playoff spots, byes and median games are used, and each run finishes with the playoff bracket for the title odds. Divisions aren't taken into account.</small>
 </section>
 <section class="panel" id="p_hist" role="tabpanel" aria-labelledby="tb_hist" hidden>
 <div class="loadrow"><button id="hi_go">Load league history</button></div>
@@ -1165,7 +1167,7 @@ async function pwRun(auto){
       scs.forEach((sc,j)=>{const t={};LISTS.forEach(([k],n)=>{const r=res[j][n];if((k==="QB"||k==="FLEX")&&r.ps&&r.ps.length){t[k]=parseList(listText(r.ps),k);pub=Math.max(pub,r.pub)}});if(Object.keys(t).length)fp[sc]=t});
       if(!Object.keys(fp).length){const e=res.flat().find(r=>r.err);throw e?e.err:new Error("FantasyPros rest-of-season rankings aren't available.")}
       warns=res.map(r=>r.warn);note=`FantasyPros rest-of-season rankings (updated ${fmtTime(pub)}).`}
-    PW={user,ts:PW&&PW.sl===sl?PW.ts:Date.now(),sl,src,fp,users:PW&&PW.sl===sl?PW.users:{}};
+    PW={user,ts:PW&&PW.sl===sl?PW.ts:Date.now(),sl,src,fp,users:PW&&PW.sl===sl?PW.users:{},odds:PW&&PW.sl===sl?PW.odds:{}};
     const last=store.get("pw_league");
     $("pw_league").innerHTML=idx.map(i=>`<option value="${i}">${esc(sl.leagues[i].name)}</option>`).join("");
     const keep=idx.find(i=>sl.leagues[i].league_id===last);if(keep!=null)$("pw_league").value=String(keep);
@@ -1211,6 +1213,84 @@ async function pwRender(){
       const order=x.lineup.slice().sort((a,b)=>x.val[b]-x.val[a]);
       return`<details class="pw${mine?" me":""}"><summary><span class="rk">${k+1}</span><span class="nm">${esc(who)}${mine?' <span class="badge b-ok">You</span>':""}<div class="sub">${wk?`${x.lineup.length} starters · ${est?"est. ":""}points`:`Starters ${x.starters} · Depth ${x.depth}`}</div></span><span class="tot">${x.total}</span><span class="bar"><i style="width:${Math.max(2,Math.round(100*x.total/top))}%"></i></span></summary>`+
         `<div class="body"><h3>${wk?"This week's best lineup":"Starting lineup"}</h3>${order.map(id=>nm(id,x.val)).join("")||'<div class="ok">No valued players.</div>'}${wk?"":`<h3>Depth</h3>${x.bench.map(id=>nm(id,x.val)).join("")||'<div class="ok">No valued bench players.</div>'}`}</div></details>`}).join("");
+  poShow(i).catch(()=>{});
+}
+// ---------- Playoff odds (Power Rankings tab) ----------
+// Standard bracket order for B seeds: 8 -> 1,8,4,5,2,7,3,6 (seeds above the playoff field are byes)
+function bracketOrder(B){let o=[1,2];while(o.length<B){const m=o.length*2+1;o=o.flatMap(x=>[x,m-x])}return o}
+// teams: [{id, w, l, t, pf, mean, meanNow}]; weeks: per remaining week, its games as [teamIdA, teamIdB] (week 0 = this week).
+// Each team's score ~ normal(mean, ~22% of mean). Returns per-team playoff / bye / title chances, expected wins, seed odds,
+// and for team index `me` the playoff chance after winning or losing this week.
+function simulateSeason({teams,weeks,nPO,median=false,sims=10000,rng=Math.random,me=null}){
+  const n=teams.length,idx=Object.fromEntries(teams.map((t,k)=>[t.id,k]));
+  nPO=Math.max(1,Math.min(nPO,n));
+  const B=1<<Math.ceil(Math.log2(Math.max(2,nPO))),byes=nPO>1?B-nPO:0,order=bracketOrder(B);
+  const out=teams.map(()=>({po:0,bye:0,champ:0,wins:0,seed:new Array(nPO).fill(0)})),what={win:[0,0],lose:[0,0]};
+  const randn=()=>{let u=0;while(!u)u=rng();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*rng())};
+  const score=(k,now)=>{const m=now?teams[k].meanNow:teams[k].mean;return m+Math.max(12,0.22*m)*randn()};
+  for(let s=0;s<sims;s++){
+    const W=teams.map(t=>t.w+t.t/2),PF=teams.map(t=>t.pf);let mine=null;
+    weeks.forEach((games,wi)=>{const sc=new Array(n).fill(null);
+      for(const [a,b] of games){const ka=idx[a],kb=idx[b];if(ka==null||kb==null)continue;
+        const x=score(ka,wi===0),y=score(kb,wi===0);sc[ka]=x;sc[kb]=y;PF[ka]+=x;PF[kb]+=y;
+        if(x>y)W[ka]++;else if(y>x)W[kb]++;else{W[ka]+=0.5;W[kb]+=0.5}
+        if(wi===0&&me!=null&&(ka===me||kb===me))mine=ka===me?x>y:y>x}
+      if(median){const v=sc.filter(x=>x!=null).sort((p,q)=>p-q);if(v.length){const m=(v[(v.length-1)>>1]+v[v.length>>1])/2;sc.forEach((x,k)=>{if(x!=null&&x>m)W[k]++})}}
+    });
+    const seeds=teams.map((_,k)=>k).sort((p,q)=>W[q]-W[p]||PF[q]-PF[p]).slice(0,nPO);
+    seeds.forEach((k,si)=>{out[k].po++;out[k].seed[si]++;if(si<byes)out[k].bye++});
+    W.forEach((w,k)=>{out[k].wins+=w});
+    let field=order.map(sd=>sd<=nPO?seeds[sd-1]:null);
+    while(field.length>1){const nx=[];for(let j=0;j<field.length;j+=2){const a=field[j],b=field[j+1];nx.push(a==null?b:b==null?a:score(a)>score(b)?a:b)}field=nx}
+    if(field[0]!=null)out[field[0]].champ++;
+    if(mine!=null){const bk=mine?what.win:what.lose;bk[1]++;if(seeds.includes(me))bk[0]++}
+  }
+  return{byes,nPO,teams:out.map(r=>({po:r.po/sims,bye:r.bye/sims,champ:r.champ/sims,wins:r.wins/sims,seed:r.seed.map(x=>x/sims)})),
+    what:{win:what.win[1]?what.win[0]/what.win[1]:null,lose:what.lose[1]?what.lose[0]/what.lose[1]:null}};
+}
+async function poCompute(i){
+  const {sl}=PW,lg=sl.leagues[i],s=lg.settings||{},last=(+s.playoff_week_start||15)-1,cur=+sl.week||1,rosters=sl.rosters[i];
+  if(cur>last)return{over:true};
+  const weeksN=[];for(let w=cur;w<=last;w++)weeksN.push(w);
+  const ms=await Promise.all(weeksN.map(w=>w===cur&&Array.isArray(sl.matchups?.[i])&&sl.matchups[i].length?sl.matchups[i]:api(`/league/${lg.league_id}/matchups/${w}`).catch(()=>[])));
+  const weeks=ms.map(m=>{const by={};for(const x of m||[])if(x.matchup_id!=null)(by[x.matchup_id]||(by[x.matchup_id]=[])).push(x.roster_id);return Object.values(by).filter(g=>g.length===2)});
+  if(!weeks.some(g=>g.length))return{noSchedule:true};
+  // This week's projected points for each team's best lineup (players out or on bye count zero)
+  const res=await rankLists("sleeper","week",sl.state.season,cur,leagueFormat(lg).sc).catch(()=>null),T={};
+  if(res)LISTS.forEach(([k],n)=>{const r=res[n];if(r&&r.ps&&r.ps.length)T[k]={table:parseList(listText(r.ps),k),pts:Object.fromEntries(r.ps.map(p=>[p.r,p.pts]))}});
+  const projOk=Object.keys(T).length>0;
+  const pts=p=>{const k=p&&secOf(p.p),l=k&&T[k];if(!l||OUT.has(p.i))return 0;const r=lookup(l.table,p);return r==null?0:l.pts[r]||0};
+  const slots=(lg.roster_positions||[]).filter(x=>!NON.has(x));
+  const teams=rosters.map(r=>{const st=r.settings||{},w=+st.wins||0,l=+st.losses||0,t=+st.ties||0,g=w+l+t,pf=(+st.fpts||0)+(+st.fpts_decimal||0)/100;
+    const ids=activeIds(r),val={},pos={};for(const id of ids){const p=sl.players[id];if(p){pos[id]=p.p;val[id]=pts(p)}}
+    const proj=lineupStrength(ids,slots,val,pos),ppg=g?pf/g:null;
+    // Later weeks: points per game so far, with this week's projection counting like two more games
+    const mean=ppg!=null&&proj>0?(g*ppg+2*proj)/(g+2):proj>0?proj:ppg??100;
+    return{id:r.roster_id,owner:r.owner_id,w,l,t,pf,g,proj,mean,meanNow:proj>0?proj:mean}});
+  const me=teams.findIndex(t=>t.owner===sl.userId);
+  const sim=simulateSeason({teams,weeks,nPO:+s.playoff_teams||6,median:+s.league_average_match===1,me:me>=0?me:null});
+  return{teams,sim,weeksLeft:weeks.length,median:+s.league_average_match===1,cur,projOk};
+}
+async function poShow(i){
+  const el=$("po_out"),{sl}=PW,lg=sl.leagues[i],card=b=>`<div class="card hcard po"><h2>Playoff odds</h2>${b}</div>`;
+  if(lg.provider==="espn"){el.innerHTML=card('<div class="ok">Playoff odds aren\'t available for ESPN leagues yet.</div>');return}
+  PW.odds=PW.odds||{};
+  if(!PW.odds[lg.league_id]){el.innerHTML=card('<div class="ok">Simulating the rest of the season…</div>');PW.odds[lg.league_id]=poCompute(i)}
+  let o;try{o=await PW.odds[lg.league_id]}catch(e){delete PW.odds[lg.league_id];el.innerHTML=card(`<div class="ok err">Couldn't work out playoff odds: ${esc(e.message)}</div>`);return}
+  if(+$("pw_league").value!==i)return;
+  if(o.over){el.innerHTML=card('<div class="ok">The regular season is over, so there are no playoff odds to work out.</div>');return}
+  if(o.noSchedule){el.innerHTML=card('<div class="ok">Sleeper hasn\'t published the rest of this league\'s schedule.</div>');return}
+  const names=Object.fromEntries((PW.users[lg.league_id]||[]).map(u=>[u.user_id,u.metadata?.team_name||u.display_name||"Team"]));
+  const pc=x=>x>=0.995?">99%":x>0&&x<0.005?"<1%":Math.round(x*100)+"%",{sim}=o;
+  const rows=o.teams.map((t,k)=>({t,r:sim.teams[k]})).sort((a,b)=>b.r.po-a.r.po||b.r.champ-a.r.champ||b.r.wins-a.r.wins);
+  const meRow=rows.find(x=>x.t.owner===sl.userId);
+  let h=`<div class="ok" style="margin-bottom:6px">${sim.nPO} of ${o.teams.length} teams make it${sim.byes?`, top ${sim.byes} get a bye`:""}${o.median?" · median games counted":""} · ${o.weeksLeft} week${o.weeksLeft>1?"s":""} left · 10,000 simulations${o.projOk?"":" · Sleeper projections unavailable, so points per game only"}.</div>`;
+  if(meRow&&sim.what.win!=null&&sim.what.lose!=null)h+=`<div class="wi">Your playoff odds: <b>${pc(meRow.r.po)}</b> · if you win this week <b class="tr-up">${pc(sim.what.win)}</b> · if you lose <b class="tr-dn">${pc(sim.what.lose)}</b></div>`;
+  h+=rows.map(({t,r})=>{const mine=t.owner===sl.userId,who=names[t.owner]||`Team ${t.id}`,games=t.g+o.weeksLeft,best=r.seed.indexOf(Math.max(...r.seed));
+    return`<div class="hrow${mine?" me":""}"><span>${esc(who)}${mine?" (you)":""}</span><b>${pc(r.po)}</b>`+
+      `<div class="m">${t.w}-${t.l}${t.t?"-"+t.t:""} now · projected ${r.wins.toFixed(1)} wins of ${games}${sim.byes?` · bye ${pc(r.bye)}`:""} · title ${pc(r.champ)}${r.po>=0.5?` · most likely seed ${best+1}`:""}</div>`+
+      `<span class="bar2"><i style="width:${Math.round(r.po*100)}%"></i></span></div>`}).join("");
+  el.innerHTML=card(h);
 }
 $("pw_src").value=PW_SRC[store.get("pw_src")]?store.get("pw_src"):"boone";
 $("pw_go").onclick=()=>pwRun();$("pw_league").onchange=()=>pwRender().catch(e=>$("pw_status").innerHTML=`<span class="err">${esc(e.message)}</span>`);
