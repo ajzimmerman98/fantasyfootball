@@ -204,13 +204,17 @@ test("playoff odds: the simulation behaves sensibly", async () => {
     const even = simulateSeason({ teams: [1, 2, 3, 4].map((id) => team(id, 3, 110)), weeks, nPO: 2, sims: 4000, rng, me: 0 });
     const lop = simulateSeason({ teams: [team(1, 7, 140), team(2, 0, 90), team(3, 3, 110), team(4, 3, 110)], weeks, nPO: 2, sims: 4000, rng });
     const six = simulateSeason({ teams: Array.from({ length: 10 }, (_, k) => team(k + 1, 3, 110)), weeks: [[[1, 2], [3, 4], [5, 6], [7, 8], [9, 10]]], nPO: 6, sims: 500, rng });
-    return { even: even.teams.map((t) => t.po), what: even.what, lop: lop.teams.map((t) => ({ po: t.po, champ: t.champ })), sixByes: six.byes, order: bracketOrder(8) };
+    // Same standings; one run treats team strength as certain, the other allows for uncertainty
+    const mk = (unc) => [team(1, 4, 125), team(2, 3, 105), team(3, 4, 112), team(4, 3, 110)].map((t) => ({ ...t, unc }));
+    const sure = simulateSeason({ teams: mk(0), weeks, nPO: 2, sims: 20000, rng }), unsure = simulateSeason({ teams: mk(7), weeks, nPO: 2, sims: 20000, rng });
+    return { sure: { po: sure.teams.map((t) => t.po) }, unsure: { po: unsure.teams.map((t) => t.po) }, even: even.teams.map((t) => t.po), what: even.what, lop: lop.teams.map((t) => ({ po: t.po, champ: t.champ })), sixByes: six.byes, order: bracketOrder(8) };
   });
   for (const p of r.even) assert.ok(Math.abs(p - 0.5) < 0.06, "even teams ~50%: " + p);
   assert.ok(r.what.win > r.what.lose + 0.2, "winning this week helps");
   assert.ok(r.lop[0].po > 0.99 && r.lop[1].po < 0.01, "7-0 juggernaut in, 0-7 out");
   assert.ok(r.lop[0].champ > 0.6);
   assert.equal(r.sixByes, 2);
+  assert.ok(r.unsure.po[1] > r.sure.po[1] + 0.01 && r.unsure.po[0] < r.sure.po[0], "strength uncertainty pulls the weakest team up and the strongest down");
   assert.deepEqual(r.order, [1, 8, 4, 5, 2, 7, 3, 6]);
 });
 
