@@ -9,21 +9,27 @@
 //   GET  /trade-values/fantasycalc?ppr&qbs&teams   FantasyCalc redraft values for a league format, rescaled so the top player is 100
 //   GET  /rankings/status?season&week       Newest publish time of Boone's rankings for that week
 //   GET  /health
-// Private (header "Authorization: Bearer <ACCESS_CODE>"):
+// Private: signed in through Cloudflare Access (email code), or "Authorization: Bearer <ACCESS_CODE>" as the owner:
+//   GET  /me/whoami                         { email, owner }
 //   GET/PUT /me/profile                     Sleeper username and app settings
 //   GET  /me/builds?limit                   Saved lineup builds, each with the newest rankings time for its week
 //   POST /me/builds                         Save builds: { builds: [...] }
 //   DELETE /me/builds/:id
-//   GET  /me/espn?season                    Your ESPN leagues (ids from profile settings.espnLeagues), in the app's league shape
+//   GET  /me/espn?season                    The owner's ESPN leagues (ids from profile settings.espnLeagues), in the app's league shape
 // Scheduled every 3 hours: save new versions of the weekly rankings from every source (Boone, FantasyPros consensus, Sleeper projections), and the week's trade value charts.
 //
-// Bindings: DB (D1). Secrets: ACCESS_CODE; ESPN_S2 and ESPN_SWID (ESPN login cookies, for private leagues).
+// The app itself (index.html) is served from this Worker as a static asset, so the app and API share one address
+// and the Access login cookie works on phones.
+//
+// Bindings: DB (D1), assets. Secrets: ACCESS_TEAM_DOMAIN, ACCESS_AUD, OWNER_EMAIL (Cloudflare Access login);
+// ACCESS_CODE (optional owner fallback); ESPN_S2 and ESPN_SWID (the owner's ESPN login cookies, for private leagues).
 
 import { loadTradeValues } from "./tradevalues.js";
 import { loadFantasyCalc, fcFormat } from "./fantasycalc.js";
 import { fetchList, sleeperWeek, appLists, SOURCES, KINDS } from "./rankings.js";
 import * as store from "./db.js";
 import { fetchLeague } from "./espn.js";
+import { accessEmail } from "./access.js";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -101,14 +107,25 @@ async function rankings(env, season, week, scoring, source = "boone", kind = "we
   return { season, week, scoring, rankSource: source, kind, lists, errors };
 }
 
-function authorize(request, env) {
-  if (!env.ACCESS_CODE) throw new HttpError(503, "ACCESS_CODE isn't set on the Worker yet.");
-  if (!env.DB) throw new HttpError(503, "The D1 database isn't connected to the Worker yet.");
+function codeMatches(request, env) {
+  if (!env.ACCESS_CODE) return false;
   const got = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+  if (!got) return false;
   const a = new TextEncoder().encode(got), b = new TextEncoder().encode(env.ACCESS_CODE);
   let diff = a.length ^ b.length;
   for (let i = 0; i < Math.max(a.length, b.length); i++) diff |= (a[i] || 0) ^ (b[i] || 0);
-  if (diff) throw new HttpError(401, "Wrong access code.");
+  return !diff;
+}
+// Who is calling: the Cloudflare Access email, or the owner when the old access code is sent
+async function authorize(request, env) {
+  if (!env.DB) throw new HttpError(503, "The D1 database isn't connected to the Worker yet.");
+  const owner = String(env.OWNER_EMAIL || "").trim().toLowerCase();
+  let email = await accessEmail(request, env).catch(() => null);
+  if (!email && codeMatches(request, env)) email = owner || "owner";
+  if (!email) throw new HttpError(401, env.ACCESS_AUD ? "Not signed in. Reload the page to sign in." : "Sign-in isn't set up on the Worker yet.");
+  const isOwner = email === (owner || "owner");
+  await store.ensureSchema(env.DB);
+  return { email, owner: isOwner, id: await store.userFor(env.DB, email, isOwner) };
 }
 
 async function readJson(request) {
@@ -120,7 +137,7 @@ async function handle(request, env) {
   const url = new URL(request.url), path = url.pathname.replace(/\/+$/, "") || "/", m = request.method;
   if (m === "OPTIONS") return new Response(null, { headers: CORS });
 
-  if (path === "/health") return json({ ok: true, db: !!env.DB, accessCode: !!env.ACCESS_CODE });
+  if (path === "/health") return json({ ok: true, db: !!env.DB, access: !!(env.ACCESS_TEAM_DOMAIN && env.ACCESS_AUD), owner: !!env.OWNER_EMAIL, accessCode: !!env.ACCESS_CODE });
   if (path === "/trade-values" && m === "GET") return json(await tradeValues(env, url.searchParams.has("refresh")), 200, "public, max-age=300");
   if (path === "/trade-values/fantasycalc" && m === "GET") return json(await fantasyCalc(Object.fromEntries(url.searchParams)), 200, "public, max-age=1800");
   if (path === "/rankings" && m === "GET") {
@@ -143,22 +160,23 @@ async function handle(request, env) {
   }
 
   if (path.startsWith("/me/")) {
-    authorize(request, env);
-    const db = env.DB;
-    await store.ensureSchema(db);
-    if (path === "/me/profile" && m === "GET") return json(await store.getProfile(db));
+    const me = await authorize(request, env), db = env.DB;
+    if (path === "/me/whoami" && m === "GET") return json({ email: me.email, owner: me.owner });
+    if (path === "/me/profile" && m === "GET") return json(await store.getProfile(db, me.id));
     if (path === "/me/profile" && m === "PUT") {
       const b = await readJson(request);
-      return json(await store.putProfile(db, { sleeperUsername: typeof b.sleeperUsername === "string" ? b.sleeperUsername.slice(0, 64) : null, settings: b.settings && typeof b.settings === "object" ? b.settings : {} }));
+      return json(await store.putProfile(db, me.id, { sleeperUsername: typeof b.sleeperUsername === "string" ? b.sleeperUsername.slice(0, 64) : null, settings: b.settings && typeof b.settings === "object" ? b.settings : {} }));
     }
-    if (path === "/me/builds" && m === "GET") return json({ builds: await store.listBuilds(db, Math.min(100, +url.searchParams.get("limit") || 30)) });
+    if (path === "/me/builds" && m === "GET") return json({ builds: await store.listBuilds(db, me.id, Math.min(100, +url.searchParams.get("limit") || 30)) });
     if (path === "/me/builds" && m === "POST") {
       const b = await readJson(request);
       if (!Array.isArray(b.builds) || b.builds.length > 30) throw new HttpError(400, "Expected { builds: [...] } with at most 30 builds.");
-      return json({ saved: await store.addBuilds(db, b.builds) });
+      return json({ saved: await store.addBuilds(db, me.id, b.builds) });
     }
     if (path === "/me/espn" && m === "GET") {
-      const ids = ((await store.getProfile(db)).settings.espnLeagues || []).map(String).filter((x) => /^\d{1,12}$/.test(x)).slice(0, 10);
+      // The ESPN cookies are the owner's login, so only the owner's leagues load
+      if (!me.owner) return json({ season: null, leagues: [], errors: [], cookies: false, ownerOnly: true });
+      const ids = ((await store.getProfile(db, me.id)).settings.espnLeagues || []).map(String).filter((x) => /^\d{1,12}$/.test(x)).slice(0, 10);
       const season = +url.searchParams.get("season") || (await sleeperWeek()).season;
       const leagues = [], errors = [];
       await Promise.all(ids.map(async (id) => {
@@ -168,7 +186,7 @@ async function handle(request, env) {
       return json({ season, leagues, errors, cookies: !!(env.ESPN_S2 && env.ESPN_SWID) });
     }
     const del = path.match(/^\/me\/builds\/(\d+)$/);
-    if (del && m === "DELETE") return json({ deleted: await store.deleteBuild(db, +del[1]) });
+    if (del && m === "DELETE") return json({ deleted: await store.deleteBuild(db, me.id, +del[1]) });
   }
   return json({ error: "Not found" }, 404);
 }

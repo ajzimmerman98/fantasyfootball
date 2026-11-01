@@ -6,11 +6,15 @@
   "main": "src/index.js",
   "compatibility_date": "2026-09-01",
   "observability": { "enabled": true },
+  // The app is served from this Worker too (same address as the API, so the Cloudflare Access login works on phones).
+  // Each deploy copies the repo's index.html into public/ first.
+  "build": { "command": "mkdir -p public && cp ../index.html public/index.html" },
+  "assets": { "directory": "./public" },
   // D1 database for profile, saved lineups, and rankings/trade value history. Tables are created on first use.
   "d1_databases": [
     { "binding": "DB", "database_name": "boone-db", "database_id": "f4b84556-c324-4e64-9b15-3986d08cddb5" }
   ],
   // Every 3 hours: save new versions of Boone's rankings and trade value charts
   "triggers": { "crons": ["17 */3 * * *"] }
-  // Secret (set in the dashboard, not here): ACCESS_CODE
+  // Secrets (set in the dashboard, not here): ACCESS_TEAM_DOMAIN, ACCESS_AUD, OWNER_EMAIL, ACCESS_CODE (optional), ESPN_S2, ESPN_SWID
 }
