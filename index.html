@@ -70,7 +70,7 @@ select.full{width:100%;height:44px}
 .idea{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 14px;margin:10px 0;font-size:14px}
 .idea h3{font-size:15px;margin:0 0 6px;display:flex;justify-content:space-between;gap:8px}.idea h3 span{color:var(--good);white-space:nowrap}
 .idea .side{margin:2px 0}.idea .side .lbl{display:inline-block;width:68px;color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase}
-.idea .meta{color:var(--muted);font-size:13px;margin-top:6px}.idea button{margin-top:8px;padding:9px;font-size:15px}
+.idea .meta{color:var(--muted);font-size:13px;margin-top:6px}.idea .meta .up{color:var(--good);font-weight:600}.idea .meta .down{color:var(--warn);font-weight:600}.idea button{margin-top:8px;padding:9px;font-size:15px}
 </style>
 </head>
 <body>
@@ -464,8 +464,8 @@ function generateTrades(i,scope){
   const val={},pos={};
   for(const r of sl.rosters[i])for(const id of r.players||[]){const p=sl.players[id];if(!p)continue;pos[id]=p.p;val[id]=tradeValue(p,fmt)??0}
   const me=sl.mineAll[i],mine=active(me),base=lineupStrength(mine,slots,val,pos);
-  // Only players with value can move; cap each side at its 14 most valuable to keep the search quick
-  const top=ids=>ids.filter(id=>val[id]>0).sort((a,b)=>val[b]-val[a]).slice(0,14);
+  // Only players with value can move; cap each side at its 18 most valuable to keep the search quick
+  const top=ids=>ids.filter(id=>val[id]>0).sort((a,b)=>val[b]-val[a]).slice(0,18);
   const giveSets=pairs(top(mine)),sum=a=>a.reduce((t,id)=>t+val[id],0);
   const teams=sl.rosters[i].filter(r=>r.owner_id!==sl.userId&&(scope==="all"||String(r.roster_id)===$("tr_team").value));
   const ideas=[];
@@ -476,17 +476,23 @@ function generateTrades(i,scope){
         // Fair to them by Boone's chart: they may lose at most a small margin
         const tol=Math.max(3,Math.round(0.08*Math.max(gv,rv)));if(rv-gv>tol)continue;
         const myGain=lineupStrength(myRest.concat(get),slots,val,pos)-base;if(myGain<2)continue;
+        // Their starting lineup must not get meaningfully worse, or they won't accept
         const ts=new Set(get),theirGain=lineupStrength(theirs.filter(id=>!ts.has(id)).concat(give),slots,val,pos)-theirBase;
-        const score=myGain+0.3*theirGain-0.3*Math.max(0,gv-rv)-(give.length+get.length-2);
+        if(theirGain<-Math.max(2,Math.round(0.02*theirBase)))continue;
+        const score=myGain+0.5*theirGain-0.3*Math.max(0,gv-rv)-(give.length+get.length-2);
         ideas.push({team:t,give,get,gv,rv,myGain,theirGain,score});
       }
     }
   }
-  ideas.sort((a,b)=>b.score-a.score);
-  // Variety: at most 2 ideas per player you'd receive and per player you'd give
-  const seenGet={},seenGive={},picked=[];
+  // Win-win first (their lineup holds or improves), then by score
+  ideas.sort((a,b)=>(a.theirGain<0)-(b.theirGain<0)||b.score-a.score);
+  // Variety: at most 2 ideas per team, per player you'd receive and per player you'd give; skip "same trade plus a throw-in"
+  const seenGet={},seenGive={},seenTeam={},picked=[],has=(a,b)=>b.every(id=>a.includes(id));
   for(const x of ideas){if(picked.length>=6)break;
     if(x.get.some(id=>(seenGet[id]||0)>=2)||x.give.some(id=>(seenGive[id]||0)>=2))continue;
+    if(scope==="all"&&(seenTeam[x.team.roster_id]||0)>=2)continue;
+    if(picked.some(y=>y.team===x.team&&has(x.give,y.give)&&has(x.get,y.get)))continue;
+    seenTeam[x.team.roster_id]=(seenTeam[x.team.roster_id]||0)+1;
     x.get.forEach(id=>seenGet[id]=(seenGet[id]||0)+1);x.give.forEach(id=>seenGive[id]=(seenGive[id]||0)+1);picked.push(x)}
   return{picked,base,checked:ideas.length};
 }
@@ -496,13 +502,13 @@ function trGenerate(){
   const names=Object.fromEntries((TR.users[sl.leagues[i].league_id]||[]).map(u=>[u.user_id,u.metadata?.team_name||u.display_name||"Team"]));
   const fmt=leagueFormat(sl.leagues[i]),nm=id=>{const p=sl.players[id];return`${esc(p.n||`${p.f} ${p.l}`)} <span class="r">${esc(p.p)} ${esc(p.t||"FA")}</span> <b class="tv">${tradeValue(p,fmt)??0}</b>`};
   const {picked,base}=generateTrades(i,scope);
-  if(!picked.length){out.innerHTML=`<div class="idea"><span class="ok">No fair trades found that improve your starting lineup${scope==="one"?" with this team. Try All teams":""}.</span></div>`;return}
+  if(!picked.length){out.innerHTML=`<div class="idea"><span class="ok">No trades found that improve your starting lineup without weakening theirs${scope==="one"?" with this team. Try All teams":""}.</span></div>`;return}
   TR.ideas=picked;
-  out.innerHTML=`<div class="ok" style="margin-top:10px">Your starting lineup is worth ${base} by Boone's values. Ideas that raise it, fair to the other team within a few points:</div>`+
+  out.innerHTML=`<div class="ok" style="margin-top:10px">Your starting lineup is worth ${base} by Boone's values. Ideas that raise it without weakening the other team's starters, fair by Boone's chart:</div>`+
     picked.map((x,k)=>{const who=names[x.team.owner_id]||"Team "+x.team.roster_id,drop=x.give.length>x.get.length?" They'd need to free a roster spot.":x.get.length>x.give.length?" You'd need to free a roster spot.":"";
       return`<div class="idea"><h3>${scope==="all"?esc(who):"Trade idea "+(k+1)}<span>Lineup +${x.myGain}</span></h3>`+
         `<div class="side"><span class="lbl">You give</span>${x.give.map(nm).join(", ")}</div><div class="side"><span class="lbl">You get</span>${x.get.map(nm).join(", ")}</div>`+
-        `<div class="meta">Value ${x.gv} → ${x.rv} · their lineup ${x.theirGain>=0?"+":""}${x.theirGain}.${drop}</div>`+
+        `<div class="meta"><span class="${x.theirGain>0?"up":x.theirGain<0?"down":""}">${x.theirGain>0?`Helps their lineup too (+${x.theirGain})`:x.theirGain<0?`Their lineup −${-x.theirGain} (slight)`:"Their lineup unchanged"}</span> · value ${x.gv} → ${x.rv}.${drop}</div>`+
         `<button data-idea="${k}">Open in comparer</button></div>`}).join("");
 }
 $("tr_gen").onclick=()=>{try{trGenerate()}catch(e){$("tr_ideas").innerHTML=`<div class="err">${esc(e.message)}</div>`}};
