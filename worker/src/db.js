@@ -16,10 +16,11 @@ const SCHEMA = [
   `CREATE UNIQUE INDEX IF NOT EXISTS lineup_builds_key ON lineup_builds (league_id, source, scoring)`,
 ];
 
-let ready = null;
+// Set up once per database binding (there's one in production; tests use several)
+const ready = new WeakMap();
 export function ensureSchema(db) {
-  if (!ready) ready = db.batch(SCHEMA.map((s) => db.prepare(s))).catch((e) => { ready = null; throw e; });
-  return ready;
+  if (!ready.has(db)) ready.set(db, db.batch(SCHEMA.map((s) => db.prepare(s))).catch((e) => { ready.delete(db); throw e; }));
+  return ready.get(db);
 }
 
 const now = () => new Date().toISOString();
@@ -65,6 +66,14 @@ export async function saveTradeValues(db, data) {
   if (stmts.length) await db.batch(stmts);
 }
 
+// Each position's newest saved chart from before this week (for week-over-week trends): { pos: { week, players } }
+export async function prevTradeValues(db, season, week) {
+  const { results } = await db.prepare(`SELECT pos, week, data FROM trade_values WHERE season = ? AND week < ? ORDER BY week DESC`).bind(season, week).all();
+  const out = {};
+  for (const r of results) if (!out[r.pos]) out[r.pos] = { week: r.week, players: JSON.parse(r.data).players || [] };
+  return out;
+}
+
 // ---- Profile ----
 export async function getProfile(db) {
   const row = await db.prepare(`SELECT sleeper_username, settings, updated_at FROM profile WHERE id = 1`).first();
@@ -91,9 +100,10 @@ export async function addBuilds(db, builds) {
 }
 // Each build comes back with the newest publish time of its rankings source for its week, so the app can tell whether it's expired
 export async function listBuilds(db, limit = 30) {
+  // Only the lists a build used count: QB, K, DEF and the FLEX list for its scoring
   const { results } = await db.prepare(`SELECT b.*, CASE WHEN b.source IN ('ecr', 'sleeper')
-      THEN (SELECT MAX(pub) FROM rankings_latest r WHERE r.source = b.source AND r.kind = 'week' AND r.season = b.season AND r.week = b.week)
-      ELSE (SELECT MAX(pub) FROM rankings r WHERE r.season = b.season AND r.week = b.week) END AS latest_pub
+      THEN (SELECT MAX(pub) FROM rankings_latest r WHERE r.source = b.source AND r.kind = 'week' AND r.season = b.season AND r.week = b.week AND r.list IN ('QB', 'K', 'DEF', 'FLEX:' || b.scoring))
+      ELSE (SELECT MAX(pub) FROM rankings r WHERE r.season = b.season AND r.week = b.week AND r.list IN ('QB', 'K', 'DEF', 'FLEX:' || b.scoring)) END AS latest_pub
     FROM lineup_builds b ORDER BY b.league_name, b.created_at DESC LIMIT ?`).bind(limit).all();
   return results.map((r) => ({
     id: r.id, createdAt: r.created_at, season: r.season, week: r.week, leagueId: r.league_id, leagueName: r.league_name,

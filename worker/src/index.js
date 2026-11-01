@@ -1,7 +1,8 @@
 // Boone Lineups API (Cloudflare Worker)
 //
 // Public (Boone's published data):
-//   GET  /trade-values                      Boone's latest trade value charts (?refresh skips the 1-hour cache)
+//   GET  /trade-values                      Boone's latest trade value charts, plus prev: each position's chart from an earlier week
+//                                           (for trends) (?refresh skips the 1-hour cache)
 //   GET  /rankings?season&week&scoring&source&kind
 //                                           QB, FLEX, K, DEF lists (scoring = PPR | HALF; defaults to Sleeper's current week).
 //                                           source = boone (default) | ecr (FantasyPros consensus) | sleeper (Sleeper projections);
@@ -43,8 +44,12 @@ async function tradeValues(env, fresh) {
   if (!fresh && tvMemo && Date.now() - tvMemo.ts < TV_CACHE_MS) return tvMemo.data;
   try {
     const data = await loadTradeValues();
+    if (env.DB) await store.ensureSchema(env.DB).then(async () => {
+      await store.saveTradeValues(env.DB, data);
+      // Previous week's charts, so the app can show each player's change
+      data.prev = await store.prevTradeValues(env.DB, data.season, data.week);
+    }).catch(() => {});
     tvMemo = { ts: Date.now(), data };
-    if (env.DB) await store.ensureSchema(env.DB).then(() => store.saveTradeValues(env.DB, data)).catch(() => {});
     return data;
   } catch (e) {
     if (tvMemo) return { ...tvMemo.data, stale: true, staleReason: e.message };

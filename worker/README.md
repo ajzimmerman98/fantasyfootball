@@ -8,8 +8,8 @@ Public (Boone's published data):
 
 | Endpoint | What it returns |
 |---|---|
-| `GET /trade-values` | Boone's latest rest-of-season trade value charts (QB, RB, WR, TE) from his weekly Yahoo articles. `?refresh` skips the 1-hour cache. |
-| `GET /trade-values/fantasycalc?ppr&qbs&teams` | [FantasyCalc](https://fantasycalc.com) redraft trade values (based on real trades) for a league format: `ppr` = 0, 0.5 or 1; `qbs` = 1 or 2 (superflex); `teams` = 8 to 16. QB/RB/WR/TE only, rescaled so the top player is 100 to sit on Boone's scale. Cached for an hour. |
+| `GET /trade-values` | Boone's latest rest-of-season trade value charts (QB, RB, WR, TE) from his weekly Yahoo articles, plus `prev`: each position's chart from the most recent earlier week saved in the database (for ▲/▼ trends). `?refresh` skips the 1-hour cache. |
+| `GET /trade-values/fantasycalc?ppr&qbs&teams` | [FantasyCalc](https://fantasycalc.com) redraft trade values (based on real trades) for a league format: `ppr` = 0, 0.5 or 1; `qbs` = 1 or 2 (superflex); `teams` = 8 to 16. QB/RB/WR/TE only, rescaled so the top player is 100 to sit on Boone's scale; `trend` is the 30-day change on the same scale. Cached for an hour. |
 | `GET /rankings?season&week&scoring&source&kind` | QB, FLEX, K and DEF lists from FantasyPros (`scoring` = `PPR` or `HALF`; defaults to Sleeper's current week). `source` = `boone` (default, Justin Boone), `ecr` (FantasyPros expert consensus) or `sleeper` (Sleeper's weekly projections, ranked by projected points; each player has `pts`); `kind` = `week` (default) or `ros` (rest of season, FantasyPros consensus only). Boone's weekly lists keep every version; other lists keep the newest copy. Serves the newest saved copy if FantasyPros is down. |
 | `GET /rankings/status?season&week` | `{ latestPub }`: when Boone last published or updated that week's rankings. |
 | `GET /health` | `{ ok, db, accessCode }`: whether the database and access code are set up. |

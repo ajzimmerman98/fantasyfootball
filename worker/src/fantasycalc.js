@@ -24,7 +24,11 @@ export function parseFC(arr) {
   if (!players.length) throw new Error("FantasyCalc returned no players");
   // FantasyCalc values run into the thousands; rescale so the top player is 100, close to Boone's chart scale
   const max = players[0].raw;
-  for (const p of players) p.value = Math.max(1, Math.round((p.raw / max) * 100));
+  for (const p of players) {
+    p.value = Math.max(1, Math.round((p.raw / max) * 100));
+    // trend30Day is in FantasyCalc's raw units: put it on the same 0-100 scale
+    p.trend = typeof p.trend === "number" ? Math.round((p.trend / max) * 100) : null;
+  }
   return players;
 }
 
