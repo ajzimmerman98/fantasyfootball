@@ -25,7 +25,8 @@ test("lineup: rankings, projected points, matchup preview, kickoff, weather and 
   assert.doesNotMatch(c, /Bijan Robinson RB ATL[^|]*Windy/);
   assert.match(c, /🔒 Locked · in progress vs MIN/);              // Jameson Williams, DET game under way
   assert.match(c, /🔒 3 starters already playing or done, so they stay put\./); // Jameson Williams and T.J. Hockenson (in progress), DK Metcalf (final)
-  assert.match(c, /24\.1 pts/);                                    // Sleeper projection for Josh Allen
+  assert.match(c, /24\.1 pts/);
+  assert.match(c, /Breece Hall RB NYJ TV \d+ UNRANKED Sun/);        // has a game, so not "bye?"                                    // Sleeper projection for Josh Allen
   // Locked players aren't moved: Germie Bernard (PIT, final) stays on the bench, Metcalf (PIT) stays in
   assert.doesNotMatch(c, /START Germie Bernard/);
   assert.doesNotMatch(c, /SIT DK Metcalf/);

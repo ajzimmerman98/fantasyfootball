@@ -343,7 +343,7 @@ function render(lg,roster,cur,players,ranks,opts){
     if(my>0||them>0){mu={opp:opts.opp.name,my:+my.toFixed(1),them:+them.toFixed(1),win:Math.round(winProb(my,them)*100)};h+=matchupHtml(opts.opp,my,curPts,them,opts.week)}}
   slots.forEach((s,i)=>{const c=line[i];
     if(!c){h+=`<div class="slot"><span class="s">${esc(s)}</span><span>Nobody eligible</span><span></span></div>`;return}
-    const notes=[];if(opts.games&&!gm(c))notes.push("BYE");else if(c.rp===Infinity&&(ranks[c.pos]||(["RB","WR","TE"].includes(c.pos)&&ranks.FLEX)))notes.push("UNRANKED (bye?)");if(c.inj)notes.push(c.inj);
+    const notes=[];if(opts.games&&!gm(c))notes.push("BYE");else if(c.rp===Infinity&&(ranks[c.pos]||(["RB","WR","TE"].includes(c.pos)&&ranks.FLEX)))notes.push(opts.games?"UNRANKED":"UNRANKED (bye?)");if(c.inj)notes.push(c.inj);
     h+=`<div class="slot"><span class="s">${esc(s.replace("_"," "))}</span><span>${esc(c.name)} <span class="r">${esc(c.pos)} ${esc(c.team||"")}</span>${tvTag(c)}${notes.length?`<div class="n">${esc(notes.join(", "))}</div>`:""}${gameLine(c)}</span><span class="r">${esc(rankTxt(c))}${ptsHtml(pv(c))}</span></div>`});
   const nw=new Set(line.filter(Boolean).map(c=>c.id)),old=new Set(realIds(starters));
   const hasL=c=>ranks[c.pos]||(["RB","WR","TE"].includes(c.pos)&&ranks.FLEX);
