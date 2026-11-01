@@ -135,7 +135,7 @@ function lineTeam(raw){
   return null;
 }
 function parseList(text,sec){
-  const r={},team={},nt={},byTeam={};let c=0;
+  const r={},team={},nt={},byTeam={},pr={},prNt={},posCount={};let c=0;
   for(const raw of (text||"").split(/\r?\n/)){
     const name=clean(raw,sec);
     if(!name||junk(name))continue;
@@ -145,10 +145,12 @@ function parseList(text,sec){
     // Use the rank written on the line ("41. Name" or "41<tab>Name") when present, so displayed ranks match the source
     const num=+((raw.match(/^\s*#?(\d{1,3})(?:[.):\-\s]|$)/)||[])[1]||0);
     const rank=c=num>c?num:c+1;
-    if(!dup){r[k]=rank;if(t)team[k]=t}
-    if(t){if(!(k+"|"+t in nt))nt[k+"|"+t]=rank;if(!(t in byTeam))byTeam[t]=rank}
+    // Position rank ("RB12") when the line says the position, e.g. "30. Chuba Hubbard (CAR, RB)"
+    const pm=raw.match(/\([A-Z]{2,3}[,\s\-]+(QB|RB|WR|TE|K|DST|DEF)\)/),prl=pm?pm[1]+(posCount[pm[1]]=(posCount[pm[1]]||0)+1):null;
+    if(!dup){r[k]=rank;if(t)team[k]=t;if(prl)pr[k]=prl}
+    if(t){if(!(k+"|"+t in nt)){nt[k+"|"+t]=rank;if(prl)prNt[k+"|"+t]=prl}if(!(t in byTeam))byTeam[t]=rank}
   }
-  META.set(r,{team,nt,byTeam});
+  META.set(r,{team,nt,byTeam,pr,prNt});
   return r;
 }
 const LISTS=[["QB","Quarterbacks"],["FLEX","FLEX (RB / WR / TE)"],["K","Kickers"],["DEF","Defenses"]];
@@ -180,25 +182,28 @@ function buildBoxes(){
   });
 }
 function collect(){const r={};for(const [k] of LISTS){const o=parseList($("t_"+k).value,k);if(Object.keys(o).length)r[k]=o}return r}
-function lookup(table,p){
+// Finds player p in a parsed list. Returns {kind,key}: kind "nt" = name|team key, "name" = name key, "team" = DEF by team
+function findEntry(table,p){
   if(!table)return null;
   const meta=META.get(table)||{},team=teamKey(p.t);
   if(p.p==="DEF"){
-    if(team&&meta.byTeam&&team in meta.byTeam)return meta.byTeam[team];
+    if(team&&meta.byTeam&&team in meta.byTeam)return{kind:"team",key:team};
     const mas=norm(p.l||""),city=norm(p.f||"");
-    for(const k of [`${city} ${mas}`.trim(),mas])if(k in table)return table[k];
-    for(const k in table)if(mas&&k.endsWith(mas))return table[k];
+    for(const k of [`${city} ${mas}`.trim(),mas])if(k in table)return{kind:"name",key:k};
+    for(const k in table)if(mas&&k.endsWith(mas))return{kind:"name",key:k};
     return null;
   }
   const keys=[norm(p.n||""),norm(`${p.f||""} ${p.l||""}`)].filter(Boolean);
-  if(team&&meta.nt)for(const k of keys)if(k+"|"+team in meta.nt)return meta.nt[k+"|"+team];
+  if(team&&meta.nt)for(const k of keys)if(k+"|"+team in meta.nt)return{kind:"nt",key:k+"|"+team};
   // When both the list and Sleeper give a team, they must agree (two players can share a name)
   const wrongTeam=t=>team&&meta.team&&meta.team[t]&&meta.team[t]!==team;
-  for(const k of keys)if(k in table&&!wrongTeam(k))return table[k];
+  for(const k of keys)if(k in table&&!wrongTeam(k))return{kind:"name",key:k};
   // Fuzzy match for nicknames and suffixes
-  for(const k of keys){let best=null,bs=0;for(const t in table){if(wrongTeam(t))continue;const s=sim(k,t);if(s>bs){bs=s;best=t}}if(bs>=0.88)return table[best]}
+  for(const k of keys){let best=null,bs=0;for(const t in table){if(wrongTeam(t))continue;const s=sim(k,t);if(s>bs){bs=s;best=t}}if(bs>=0.88)return{kind:"name",key:best}}
   return null;
 }
+function lookup(table,p){const e=findEntry(table,p);if(!e)return null;const m=META.get(table)||{};return e.kind==="nt"?m.nt[e.key]:e.kind==="team"?m.byTeam[e.key]:table[e.key]}
+function lookupPosRank(table,p){const e=findEntry(table,p);if(!e)return null;const m=META.get(table)||{};return(e.kind==="nt"?m.prNt:e.kind==="name"?m.pr:null)?.[e.key]||null}
 
 // fresh=true adds a cache-buster so lineup changes made in the Sleeper app show up immediately
 async function api(path,fresh){const url=API+path+(fresh?(path.includes("?")?"&":"?")+"_="+Date.now():"");const r=await fetch(url,{cache:"no-store"});if(!r.ok)throw new Error(`Sleeper error ${r.status} on ${path}`);return r.json()}
@@ -234,7 +239,7 @@ function candidates(roster,starters,players,ranks,allowDoubt){
     let rp=lookup(ranks[p.p],p);if(rp==null&&["RB","WR","TE"].includes(p.p))rp=lookup(ranks.FLEX,p);
     out.push({id,name:p.n||(p.f+" "+p.l),pos:p.p,team:p.t,inj:p.i,
       out:OUT.has(p.i)||(!allowDoubt&&p.i==="Doubtful"),
-      rp:rp??Infinity,rf:isSk?lookup(ranks.FLEX,p):null,rsf:isSf?lookup(ranks.SUPERFLEX,p):null,cur:cur.has(id)});
+      rp:rp??Infinity,pr:isSk?lookupPosRank(ranks.FLEX,p):null,rf:isSk?lookup(ranks.FLEX,p):null,rsf:isSf?lookup(ranks.SUPERFLEX,p):null,cur:cur.has(id)});
   }
   return out;
 }
@@ -249,6 +254,7 @@ function build(slots,cands){
   return res;
 }
 
+const rankTxt=c=>c.rp===Infinity?"--":(c.pr?c.pr+" · ":"")+"#"+c.rp;
 function render(lg,roster,cur,players,ranks,opts){
   const {starters,src}=cur;
   const slots=lg.roster_positions.filter(p=>!NON.has(p));
@@ -257,10 +263,10 @@ function render(lg,roster,cur,players,ranks,opts){
   slots.forEach((s,i)=>{const c=line[i];
     if(!c){h+=`<div class="slot"><span class="s">${esc(s)}</span><span>Nobody eligible</span><span></span></div>`;return}
     const notes=[];if(c.rp===Infinity&&(ranks[c.pos]||(["RB","WR","TE"].includes(c.pos)&&ranks.FLEX)))notes.push("UNRANKED (bye?)");if(c.inj)notes.push(c.inj);
-    h+=`<div class="slot"><span class="s">${esc(s.replace("_"," "))}</span><span>${esc(c.name)} <span class="r">${esc(c.pos)} ${esc(c.team||"")}</span>${notes.length?`<div class="n">${esc(notes.join(", "))}</div>`:""}</span><span class="r">${c.rp===Infinity?"--":"#"+c.rp}</span></div>`});
+    h+=`<div class="slot"><span class="s">${esc(s.replace("_"," "))}</span><span>${esc(c.name)} <span class="r">${esc(c.pos)} ${esc(c.team||"")}</span>${notes.length?`<div class="n">${esc(notes.join(", "))}</div>`:""}</span><span class="r">${esc(rankTxt(c))}</span></div>`});
   const nw=new Set(line.filter(Boolean).map(c=>c.id)),old=new Set(realIds(starters));
   const hasL=c=>ranks[c.pos]||(["RB","WR","TE"].includes(c.pos)&&ranks.FLEX);
-  const tg=c=>c.out?` (${c.inj||"out"})`:!c.pos||!hasL(c)?"":c.rp===Infinity?" (unranked)":` (#${c.rp})`;
+  const tg=c=>c.out?` (${c.inj||"out"})`:!c.pos||!hasL(c)?"":c.rp===Infinity?" (unranked)":` (${c.pr?c.pr+", ":""}#${c.rp})`;
   const byName=(a,b)=>a.name.localeCompare(b.name);
   const starts=[...nw].filter(i=>!old.has(i)).map(i=>byId[i]).sort(byName);
   const sits=[...old].filter(i=>!nw.has(i)).map(i=>byId[i]||{name:players[i]?.n||`Unknown player (${i})`}).sort(byName);
@@ -269,7 +275,7 @@ function render(lg,roster,cur,players,ranks,opts){
   else{starts.forEach(c=>h+=`<div><span class="start">START</span> ${esc(c.name)}${esc(tg(c))}</div>`);sits.forEach(c=>h+=`<div><span class="sit">SIT</span> ${esc(c.name)}${esc(tg(c))}</div>`)}
   h+=`</div>`;
   const bench=cands.filter(c=>!nw.has(c.id)).sort((a,b)=>a.rp===b.rp?a.name.localeCompare(b.name):a.rp<b.rp?-1:1);
-  if(bench.length)h+=`<div class="bn"><h3>Bench</h3>`+bench.map(c=>`<div class="slot"><span class="s">BN</span><span>${esc(c.name)} <span class="r">${esc(c.pos)} ${esc(c.team||"")}</span>${c.inj?`<div class="n">${esc(c.inj)}</div>`:""}</span><span class="r">${c.rp===Infinity?"--":"#"+c.rp}</span></div>`).join("")+`</div>`;
+  if(bench.length)h+=`<div class="bn"><h3>Bench</h3>`+bench.map(c=>`<div class="slot"><span class="s">BN</span><span>${esc(c.name)} <span class="r">${esc(c.pos)} ${esc(c.team||"")}</span>${c.inj?`<div class="n">${esc(c.inj)}</div>`:""}</span><span class="r">${esc(rankTxt(c))}</span></div>`).join("")+`</div>`;
   if(opts.debug)h+=debugBlock(slots,starters,line,src,players,byId);
   return h+`</div>`;
 }
@@ -343,7 +349,7 @@ async function fetchBoone(season,week,sec,scoring){
   const who=(d.expert_names||{})[FP_EXPERT];
   if(who&&!/boone/i.test(who))throw new Error(`FantasyPros expert ${FP_EXPERT} is now "${who}", not Boone. Paste lists for now.`);
   // rank_ecr is the 1..N numbering Yahoo's widget displays (Boone's raw ranks have gaps for players FantasyPros dropped)
-  const ps=(d.players||[]).map(p=>({r:+(p.rank_ecr||(p.experts||{})[FP_EXPERT]),n:p.player_name,t:teamKey(p.player_team_id)}))
+  const ps=(d.players||[]).map(p=>({r:+(p.rank_ecr||(p.experts||{})[FP_EXPERT]),n:p.player_name,t:teamKey(p.player_team_id),pos:sec==="FLEX"?(p.player_positions||"").split(",")[0]:""}))
     .filter(p=>p.r&&p.n).sort((a,b)=>a.r-b.r);
   const pubStr=(d.expert_pub||{})[FP_EXPERT],pub=pubStr?Date.parse(pubStr.replace(" ","T")+"Z"):(d.last_updated_ts||0)*1000;
   return{ps,pub};
@@ -366,7 +372,7 @@ async function loadBoone(){
     const got=[],missing=[];let latest=0;
     LISTS.forEach(([k,l],i)=>{const r=res[i];
       if(!r.ps||!r.ps.length){missing.push(l);return}
-      $("t_"+k).value=r.ps.map(p=>`${p.r}. ${p.n}${p.t?` (${p.t})`:""}`).join("\n");
+      $("t_"+k).value=r.ps.map(p=>`${p.r}. ${p.n}${p.t?` (${p.t}${p.pos?", "+p.pos:""})`:""}`).join("\n");
       updCount(k,true);store.set("src_"+k,JSON.stringify({season,week,scoring,pub:r.pub}));updCount(k);
       got.push(l);latest=Math.max(latest,r.pub);
     });
