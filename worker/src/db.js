@@ -5,6 +5,8 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS profile (id INTEGER PRIMARY KEY CHECK (id = 1), sleeper_username TEXT, settings TEXT, updated_at TEXT)`,
   // Each saved version of a Boone list, keyed by its published time
   `CREATE TABLE IF NOT EXISTS rankings (season INTEGER NOT NULL, week INTEGER NOT NULL, list TEXT NOT NULL, pub INTEGER NOT NULL, fetched_at TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY (season, week, list, pub))`,
+  // Newest copy of each consensus (and rest-of-season) list: these change many times a week, so only the latest is kept
+  `CREATE TABLE IF NOT EXISTS rankings_latest (source TEXT NOT NULL, kind TEXT NOT NULL, season INTEGER NOT NULL, week INTEGER NOT NULL, list TEXT NOT NULL, pub INTEGER NOT NULL, fetched_at TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY (source, kind, season, week, list))`,
   `CREATE TABLE IF NOT EXISTS trade_values (season INTEGER NOT NULL, week INTEGER NOT NULL, pos TEXT NOT NULL, published TEXT, fetched_at TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY (season, week, pos))`,
   `CREATE TABLE IF NOT EXISTS lineup_builds (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, season INTEGER, week INTEGER, league_id TEXT, league_name TEXT, scoring TEXT, rankings_pub INTEGER, source TEXT, result TEXT NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS lineup_builds_created ON lineup_builds (created_at)`,
@@ -41,6 +43,19 @@ export async function latestPub(db, season, week) {
   return row?.pub || 0;
 }
 
+// ---- Latest copy of other sources' lists (week = 0 for rest of season) ----
+export async function saveLatest(db, season, week, list) {
+  if (!list.players.length || !list.pub) return false;
+  await db.prepare(`INSERT INTO rankings_latest (source, kind, season, week, list, pub, fetched_at, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(source, kind, season, week, list) DO UPDATE SET pub = excluded.pub, fetched_at = excluded.fetched_at, data = excluded.data`)
+    .bind(list.source, list.kind, season, week, list.key, list.pub, now(), JSON.stringify(list.players)).run();
+  return true;
+}
+export async function getLatest(db, source, kind, season, week, key) {
+  const row = await db.prepare(`SELECT pub, data FROM rankings_latest WHERE source = ? AND kind = ? AND season = ? AND week = ? AND list = ?`).bind(source, kind, season, week, key).first();
+  return row ? { key, pub: row.pub, players: JSON.parse(row.data) } : null;
+}
+
 // ---- Trade value history (one copy per position per week) ----
 export async function saveTradeValues(db, data) {
   const stmts = Object.entries(data.charts || {}).map(([pos, c]) =>
@@ -72,9 +87,11 @@ export async function addBuilds(db, builds) {
   if (stmts.length) await db.batch(stmts);
   return stmts.length;
 }
-// Each build comes back with the newest Boone publish time for its week, so the app can tell whether it's expired
+// Each build comes back with the newest publish time of its rankings source for its week, so the app can tell whether it's expired
 export async function listBuilds(db, limit = 30) {
-  const { results } = await db.prepare(`SELECT b.*, (SELECT MAX(pub) FROM rankings r WHERE r.season = b.season AND r.week = b.week) AS latest_pub
+  const { results } = await db.prepare(`SELECT b.*, CASE WHEN b.source = 'ecr'
+      THEN (SELECT MAX(pub) FROM rankings_latest r WHERE r.source = 'ecr' AND r.kind = 'week' AND r.season = b.season AND r.week = b.week)
+      ELSE (SELECT MAX(pub) FROM rankings r WHERE r.season = b.season AND r.week = b.week) END AS latest_pub
     FROM lineup_builds b ORDER BY b.created_at DESC, b.league_name LIMIT ?`).bind(limit).all();
   return results.map((r) => ({
     id: r.id, createdAt: r.created_at, season: r.season, week: r.week, leagueId: r.league_id, leagueName: r.league_name,

@@ -1,5 +1,6 @@
-// Justin Boone's weekly rankings, from the FantasyPros feed behind the widget in his Yahoo articles.
-// 317 is Boone's FantasyPros expert id. This isn't an official API, so the app keeps Paste as a fallback.
+// Rankings from the FantasyPros feed behind the widget in Boone's Yahoo articles. Not an official API, so the app keeps Paste as a fallback.
+// Sources: "boone" = Justin Boone only (FantasyPros expert 317); "ecr" = FantasyPros expert consensus (no expert filter).
+// Kinds: "week" = this week's rankings; "ros" = rest of season (consensus only; Boone has no rest-of-season list there).
 
 export const EXPERT = "317";
 const FP_URL = "https://partners.fantasypros.com/api/v1/consensus-rankings.php";
@@ -18,26 +19,31 @@ export const appLists = (scoring) => ({ QB: "QB", FLEX: scoring === "HALF" ? "FL
 const TEAM_FIX = { JAC: "JAX", WSH: "WAS", LA: "LAR", OAK: "LV", SD: "LAC" };
 const teamKey = (t) => (t ? TEAM_FIX[t] || t : t);
 
-export async function fetchList(season, week, key) {
-  const def = LIST_DEFS[key];
-  const q = new URLSearchParams({ sport: "NFL", year: String(season), week: String(week), position: def.pos, scoring: def.scoring, experts: "show", type: "ST", filters: EXPERT, widget: "ST" });
+export const SOURCES = ["boone", "ecr"];
+export const KINDS = ["week", "ros"];
+
+export async function fetchList(season, week, key, source = "boone", kind = "week") {
+  const def = LIST_DEFS[key], boone = source === "boone";
+  if (boone && kind !== "week") throw new Error("Boone only has weekly rankings on FantasyPros");
+  const q = new URLSearchParams({ sport: "NFL", year: String(season), week: kind === "ros" ? "0" : String(week), position: def.pos, scoring: def.scoring, type: kind === "ros" ? "ROS" : "ST" });
+  if (boone) { q.set("experts", "show"); q.set("filters", EXPERT); q.set("widget", "ST"); }
   const r = await fetch(`${FP_URL}?${q}`, { headers: { Accept: "application/json" } });
   if (!r.ok) throw new Error(`FantasyPros returned ${r.status}`);
   const d = await r.json();
   const who = (d.expert_names || {})[EXPERT];
-  if (who && !/boone/i.test(who)) throw new Error(`FantasyPros expert ${EXPERT} is now "${who}", not Boone`);
+  if (boone && who && !/boone/i.test(who)) throw new Error(`FantasyPros expert ${EXPERT} is now "${who}", not Boone`);
   const players = (d.players || [])
-    .map((p) => ({
-      r: +(p.rank_ecr || (p.experts || {})[EXPERT]), // rank_ecr = the 1..N numbering Yahoo's widget shows
-      n: p.player_name,
-      t: teamKey(p.player_team_id),
-      pos: def.pos === "FLX" ? (p.player_positions || "").split(",")[0] : undefined,
-    }))
+    .map((p) => {
+      const o = { r: +(p.rank_ecr || (boone && (p.experts || {})[EXPERT])), n: p.player_name, t: teamKey(p.player_team_id) }; // rank_ecr = the 1..N numbering Yahoo's widget shows
+      if (def.pos === "FLX") o.pos = (p.player_positions || "").split(",")[0];
+      if (typeof p.player_owned_avg === "number") o.o = Math.round(p.player_owned_avg); // % of leagues (Yahoo, ESPN, ...) where he's rostered
+      return o;
+    })
     .filter((p) => p.r && p.n)
     .sort((a, b) => a.r - b.r);
-  const pubStr = (d.expert_pub || {})[EXPERT];
+  const pubStr = boone && (d.expert_pub || {})[EXPERT];
   const pub = pubStr ? Date.parse(pubStr.replace(" ", "T") + "Z") : (d.last_updated_ts || 0) * 1000;
-  return { key, pub: players.length ? pub : 0, players };
+  return { key, source, kind, pub: players.length ? pub : 0, players };
 }
 
 // Current NFL season and week, as Sleeper shows them
