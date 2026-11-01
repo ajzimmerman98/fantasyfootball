@@ -353,7 +353,7 @@ async function run(force){
   $("go").disabled=false;
 }
 // ---------- Trade values (via the Cloudflare Worker in worker/) ----------
-const API_BASE_DEFAULT=""; // Worker URL, e.g. https://boone-api.<you>.workers.dev. Can be overridden with ?api=<url>
+const API_BASE_DEFAULT="https://boone-api.ajzimmerman98.workers.dev"; // Cloudflare Worker (worker/). Can be overridden with ?api=<url>
 {const q=new URLSearchParams(location.search).get("api");if(q)store.set("api_url",q.replace(/\/+$/,""))}
 const apiBase=()=>store.get("api_url")||API_BASE_DEFAULT;
 let TV=null; // {data, idx:{QB:{normName:values}}}
