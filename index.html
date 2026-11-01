@@ -47,9 +47,9 @@ select{padding:0 10px;border:1px solid var(--line);border-radius:12px;background
 .sv .when{color:var(--muted);font-size:12px;display:block;margin:2px 0 6px}.sv .body{padding:0 12px 10px}
 .badge{font-size:12px;font-weight:600;border:1px solid currentColor;border-radius:999px;padding:1px 8px;white-space:nowrap}.b-ok{color:var(--good)}.b-exp{color:var(--warn)}.b-old{color:var(--muted)}
 small{color:var(--muted);display:block;margin-top:16px;font-size:12px}
-.tabs{display:flex;gap:4px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:4px;margin:12px 0 4px;position:sticky;top:env(safe-area-inset-top);z-index:5}
-.tabs button{flex:1 1 0;min-width:0;width:auto;padding:7px 2px;font-size:13.5px;line-height:1.2;white-space:normal;overflow-wrap:normal;letter-spacing:-.01em;border-radius:9px;background:none;color:var(--muted);font-weight:600}
-@media (max-width:360px){.tabs button{font-size:12px;letter-spacing:-.02em}}
+.tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:4px;margin:12px 0 4px;position:sticky;top:env(safe-area-inset-top);z-index:5}
+.tabs button{min-width:0;width:auto;padding:8px 2px;font-size:14px;line-height:1.2;white-space:normal;letter-spacing:-.01em;border-radius:9px;background:none;color:var(--muted);font-weight:600}
+@media (max-width:360px){.tabs button{font-size:13px;letter-spacing:-.02em}}
 .tabs button[aria-selected=true]{background:var(--accent);color:#fff}
 .panel[hidden]{display:none}
 .soon{color:var(--muted);font-size:15px}.soon ul{padding-left:20px;margin:8px 0 0}
@@ -82,6 +82,9 @@ select.full{width:100%;height:44px}
 .pw .rk{font-size:18px;font-weight:700;color:var(--muted);text-align:center}.pw .nm{font-weight:600}.pw .sub{color:var(--muted);font-size:12px;font-weight:400}
 .pw .tot{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums}.pw .bar{grid-column:2/4;height:4px;border-radius:2px;background:var(--line);overflow:hidden}.pw .bar i{display:block;height:100%;background:var(--accent)}
 .pw .body{padding:0 12px 10px}.pw .body h3{font-size:12px;color:var(--muted);margin:8px 0 2px;text-transform:uppercase;letter-spacing:.03em}.pw .pl2{display:flex;justify-content:space-between;padding:2px 0;border-top:1px solid var(--line)}
+.hrow{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:7px 0;border-top:1px solid var(--line);font-size:14px;align-items:baseline}
+.hrow:first-of-type{border-top:0}.hrow .m{color:var(--muted);font-size:12px;grid-column:1/3}.hrow b{font-variant-numeric:tabular-nums}.hrow.me>span:first-child{color:var(--accent);font-weight:600}
+.hrow .w{color:var(--good)}.hrow .l{color:var(--bad)}.hcard h2{display:flex;justify-content:space-between;align-items:center;gap:8px}.hcard h2 select{font-size:14px;height:34px;max-width:60%}
 .idea .meta{color:var(--muted);font-size:13px;margin-top:6px}.idea .meta .up{color:var(--good);font-weight:600}.idea .meta .down{color:var(--warn);font-weight:600}.idea button{margin-top:8px;padding:9px;font-size:15px}
 </style>
 </head>
@@ -102,6 +105,7 @@ select.full{width:100%;height:44px}
 <button role="tab" id="tb_weather" data-tab="weather" aria-controls="p_weather">Weather</button>
 <button role="tab" id="tb_trade" data-tab="trade" aria-controls="p_trade">Trades</button>
 <button role="tab" id="tb_power" data-tab="power" aria-controls="p_power">Power Rankings</button>
+<button role="tab" id="tb_hist" data-tab="hist" aria-controls="p_hist">History</button>
 </nav>
 <section class="panel" id="p_lineup" role="tabpanel" aria-labelledby="tb_lineup">
 <label>Rankings</label>
@@ -149,6 +153,12 @@ select.full{width:100%;height:44px}
 <div id="pw_status" class="status"></div>
 <div id="pw_ui" hidden><select id="pw_league" class="full" aria-label="League"></select><div id="pw_out"></div></div>
 <small>Rest of season: score = starting lineup + depth. Starting lineup is the best lineup each roster can field (QB, RB, WR, TE and flex spots) at full value. Depth adds the six best bench players at 35%, 30%, 25%, 20%, 15% and 10% of their value. IR and taxi players don't count; kickers and defenses aren't valued. FantasyPros ranks are turned into values on a curve (#1 = 100; QBs scaled lower in 1QB leagues) so they can be added up. Each league uses its own format.<br><br>This week: score = projected points of the best starting lineup each team can field this week, kickers and defenses included; players who are out or on bye don't count, and the bench doesn't either. Sleeper projections use Sleeper's projected points; Justin Boone and FantasyPros ranks are turned into estimated points on a curve for each position (e.g. FLEX #1 ≈ 24, #50 ≈ 11.5).</small>
+</section>
+<section class="panel" id="p_hist" role="tabpanel" aria-labelledby="tb_hist" hidden>
+<div class="loadrow"><button id="hi_go">Load league history</button></div>
+<div id="hi_status" class="status"></div>
+<div id="hi_ui" hidden><select id="hi_league" class="full" aria-label="League"></select><div id="hi_out"></div></div>
+<small>Sleeper leagues, back through every season the league was renewed. Records, points and head-to-head count regular-season games; playoff wins and losses come from the winners bracket. The current season counts finished weeks only. All-play = your record if you'd played every team every week; luck = actual win % minus all-play win %. Finished seasons are saved on this device. ESPN history isn't supported yet.</small>
 </section>
 <section class="panel" id="p_weather" role="tabpanel" aria-labelledby="tb_weather" hidden>
 <div class="row"><input id="w_starters" type="checkbox" checked><label for="w_starters" style="margin:0;color:var(--text)">Starters only</label></div>
@@ -1093,7 +1103,149 @@ $("pw_src").value=PW_SRC[store.get("pw_src")]?store.get("pw_src"):"boone";
 $("pw_go").onclick=pwRun;$("pw_league").onchange=()=>pwRender().catch(e=>$("pw_status").innerHTML=`<span class="err">${esc(e.message)}</span>`);
 $("pw_src").onchange=()=>{store.set("pw_src",$("pw_src").value);saveProfile();if(PW)pwRun()};
 
-const TABS=["lineup","fa","weather","trade","power"];
+// ---------- League history tab ----------
+// Walks a Sleeper league back through previous_league_id. Each season: users, rosters, winners bracket and regular-season
+// matchups, reduced to games between managers (user ids carry across seasons). Finished seasons are cached on the device.
+const HI_CACHE="hist_v1_";
+async function histSeason(id,curWeek){
+  try{const c=JSON.parse(store.get(HI_CACHE+id)||"null");if(c)return c}catch(e){}
+  const [lg,users,rosters,bracket]=await Promise.all([api(`/league/${id}`,true),api(`/league/${id}/users`).catch(()=>[]),api(`/league/${id}/rosters`,true).catch(()=>[]),api(`/league/${id}/winners_bracket`,true).catch(()=>[])]);
+  const done=lg.status==="complete",pre=lg.status==="pre_draft"||lg.status==="drafting";
+  const last=(+lg.settings?.playoff_week_start||15)-1,upto=pre?0:done?last:Math.min(last,Math.max(0,curWeek-1));
+  const own={},names={};
+  for(const r of rosters)own[r.roster_id]=r.owner_id||`orphan:${lg.season}:${r.roster_id}`;
+  for(const u of users)names[u.user_id]={n:u.display_name||"Manager",t:u.metadata?.team_name||null};
+  for(const r of rosters)if(!r.owner_id)names[own[r.roster_id]]={n:`Orphan team ${r.roster_id}`,t:null};
+  const weeks=await Promise.all(Array.from({length:upto},(_,i)=>api(`/league/${id}/matchups/${i+1}`,!done).catch(()=>[])));
+  const games=[];
+  weeks.forEach((ms,i)=>{const by={};for(const m of ms||[])if(m.matchup_id!=null)(by[m.matchup_id]||(by[m.matchup_id]=[])).push(m);
+    for(const g of Object.values(by))if(g.length===2)games.push([i+1,own[g[0].roster_id],+(+g[0].points||0).toFixed(2),own[g[1].roster_id],+(+g[1].points||0).toFixed(2)])});
+  const b=Array.isArray(bracket)?bracket:[],ow=x=>typeof x==="number"?own[x]:null;
+  const fin=b.find(m=>m.p===1),third=b.find(m=>m.p===3),po=new Set(),pw={},pl={};
+  for(const m of b){for(const t of [m.t1,m.t2])if(typeof t==="number")po.add(ow(t));if(m.w&&m.l){pw[ow(m.w)]=(pw[ow(m.w)]||0)+1;pl[ow(m.l)]=(pl[ow(m.l)]||0)+1}}
+  const out={id,season:+lg.season,name:lg.name,prev:lg.previous_league_id&&lg.previous_league_id!=="0"?lg.previous_league_id:null,done,weeks:upto,names,games,
+    champ:fin&&fin.w?ow(fin.w):null,runner:fin&&fin.l?ow(fin.l):null,third:third&&third.w?ow(third.w):null,playoffs:[...po].filter(Boolean),pw,pl};
+  if(done)store.set(HI_CACHE+id,JSON.stringify(out));
+  return out;
+}
+let HI=null;
+async function hiRun(){
+  const user=$("user").value.trim(),st=$("hi_status");store.set("user",user);
+  if(!user){st.textContent="Enter your Sleeper username.";return}
+  $("hi_go").disabled=true;
+  try{
+    const sl=await loadSleeper(user,false,st);
+    const idx=sl.leagues.map((lg,i)=>sl.mineAll[i]&&lg.provider!=="espn"?i:-1).filter(i=>i>=0);
+    if(!idx.length)throw new Error("No Sleeper leagues with your roster found.");
+    HI={sl,data:{},me:sl.userId};
+    const last=store.get("hi_league");
+    $("hi_league").innerHTML=idx.map(i=>`<option value="${i}">${esc(sl.leagues[i].name)}</option>`).join("");
+    const keep=idx.find(i=>sl.leagues[i].league_id===last);if(keep!=null)$("hi_league").value=String(keep);
+    $("hi_ui").hidden=false;
+    await hiLoad();
+  }catch(e){st.innerHTML=`<span class="err">${esc(e.message)}</span>`}
+  $("hi_go").disabled=false;
+}
+async function hiLoad(){
+  const i=+$("hi_league").value,{sl}=HI,lg=sl.leagues[i],st=$("hi_status");store.set("hi_league",lg.league_id);
+  if(!HI.data[lg.league_id]){
+    const seasons=[];let id=lg.league_id;
+    while(id&&seasons.length<20){st.textContent=`Loading ${lg.name}: ${seasons.length?seasons[seasons.length-1].season-1:sl.state.season} season…`;
+      const s=await histSeason(id,+sl.week||0);seasons.push(s);id=s.prev}
+    HI.data[lg.league_id]=seasons.reverse();
+  }
+  const seasons=HI.data[lg.league_id],played=seasons.filter(s=>s.games.length);
+  st.textContent=`${lg.name}: ${seasons.length} season${seasons.length>1?"s":""} (${seasons[0].season}–${seasons[seasons.length-1].season}), ${played.reduce((t,s)=>t+s.games.length,0)} games.`;
+  HI.agg=hiAggregate(seasons);
+  if(!HI.agg.mgr[HI.who])HI.who=HI.agg.mgr[HI.me]?HI.me:Object.keys(HI.agg.mgr)[0];
+  hiRender();
+}
+function hiAggregate(seasons){
+  const mgr={},h2h={},name={},recs={hi:null,lo:null,blow:null,close:null},seasonRows=[];
+  const M=o=>mgr[o]||(mgr[o]={w:0,l:0,t:0,pf:0,pa:0,g:0,aw:0,al:0,at:0,titles:0,runner:0,po:0,pw:0,pl:0,seasons:0});
+  const H=(a,b)=>{const x=h2h[a]||(h2h[a]={});return x[b]||(x[b]={w:0,l:0,t:0,pf:0,pa:0,last:null})};
+  // Names: newest season wins
+  for(const s of seasons)for(const [o,v] of Object.entries(s.names))name[o]=v.n;
+  const streak={};const best={w:{n:0},l:{n:0}};
+  for(const s of seasons){
+    const tm=o=>s.names[o]?.t||name[o]||"Team",sea={};
+    for(const o of Object.keys(s.names))if(s.games.some(g=>g[1]===o||g[3]===o)){M(o).seasons++;sea[o]={w:0,l:0,t:0,pf:0}}
+    const byWeek={};
+    for(const [w,a,pa,b,pb] of s.games){
+      for(const [x,px,y,py] of [[a,pa,b,pb],[b,pb,a,pa]]){
+        const m=M(x),h=H(x,y),r=px>py?"w":px<py?"l":"t";m[r]++;m.g++;m.pf+=px;m.pa+=py;h[r]++;h.pf+=px;h.pa+=py;h.last={season:s.season,week:w,px,py};
+        const z=sea[x]||(sea[x]={w:0,l:0,t:0,pf:0});z[r]++;z.pf+=px;
+        // streaks across seasons, in game order
+        const k=streak[x]||(streak[x]={r:null,n:0,from:null});
+        if(k.r===r)k.n++;else{k.r=r;k.n=1;k.from={season:s.season,week:w}}
+        if(r!=="t"&&k.n>best[r].n)best[r]={n:k.n,o:x,from:k.from,to:{season:s.season,week:w}};
+        if(!recs.hi||px>recs.hi.p)recs.hi={p:px,o:x,v:y,season:s.season,week:w};
+        if(px>0&&(!recs.lo||px<recs.lo.p))recs.lo={p:px,o:x,v:y,season:s.season,week:w};
+        (byWeek[w]||(byWeek[w]=[])).push([x,px]);
+      }
+      const mg=Math.abs(pa-pb),wn=pa>=pb?[a,pa,b,pb]:[b,pb,a,pa];
+      if(!recs.blow||mg>recs.blow.m)recs.blow={m:mg,w:wn[0],pw:wn[1],l:wn[2],pl:wn[3],season:s.season,week:w};
+      if(!recs.close||mg<recs.close.m)recs.close={m:mg,w:wn[0],pw:wn[1],l:wn[2],pl:wn[3],season:s.season,week:w};
+    }
+    // All-play: every score against every other score that week
+    for(const sc of Object.values(byWeek))for(const [x,px] of sc)for(const [y,py] of sc)if(x!==y){const m=M(x);px>py?m.aw++:px<py?m.al++:m.at++}
+    if(s.champ)M(s.champ).titles++;if(s.runner)M(s.runner).runner++;
+    for(const o of s.playoffs)M(o).po++;for(const [o,n] of Object.entries(s.pw))M(o).pw+=n;for(const [o,n] of Object.entries(s.pl))M(o).pl+=n;
+    const ents=Object.entries(sea);
+    const top=ents.slice().sort((a,b)=>(b[1].w+b[1].t/2)-(a[1].w+a[1].t/2)||b[1].pf-a[1].pf)[0],pts=ents.slice().sort((a,b)=>b[1].pf-a[1].pf)[0];
+    seasonRows.push({s,tm,top,pts});
+  }
+  // Best single season by record, then points; most points in a season
+  let bestSeason=null,mostPts=null;
+  for(const r of seasonRows){const ents=r.s.games.length?Object.keys(r.s.names):[];
+    for(const o of ents){const g=r.s.games.filter(x=>x[1]===o||x[3]===o);if(!g.length)continue;
+      let w=0,l=0,t=0,pf=0;for(const [,a,pa,b,pb] of g){const px=a===o?pa:pb,py=a===o?pb:pa;px>py?w++:px<py?l++:t++;pf+=px}
+      const pct=(w+t/2)/(w+l+t);
+      if(r.s.done&&(!bestSeason||pct>bestSeason.pct||pct===bestSeason.pct&&pf>bestSeason.pf))bestSeason={o,w,l,t,pf,pct,season:r.s.season};
+      if(r.s.done&&(!mostPts||pf>mostPts.pf))mostPts={o,pf,season:r.s.season,g:g.length};}}
+  return{mgr,h2h,name,recs,best,seasonRows,bestSeason,mostPts};
+}
+const rec=x=>`${x.w}-${x.l}${x.t?"-"+x.t:""}`;
+const pct=x=>{const n=x.w+x.l+x.t;return n?((x.w+x.t/2)/n).toFixed(3).replace(/^0/,""):"—"};
+const num=v=>Math.round(v).toLocaleString();
+function hiRender(){
+  const {agg,me,who}=HI,{mgr,h2h,name,recs,best,seasonRows,bestSeason,mostPts}=agg,N=o=>esc(name[o]||"Manager");
+  const when=x=>`${x.season} wk ${x.week}`;
+  const ids=Object.keys(mgr).sort((a,b)=>((mgr[b].w+mgr[b].t/2)/Math.max(1,mgr[b].g))-((mgr[a].w+mgr[a].t/2)/Math.max(1,mgr[a].g))||mgr[b].pf-mgr[a].pf);
+  let h="";
+  // Champions
+  h+=`<div class="card hcard"><h2>Champions</h2>`+seasonRows.slice().reverse().map(({s,tm})=>`<div class="hrow${s.champ===me?" me":""}"><span><b>${s.season}</b> · ${s.champ?`🏆 ${esc(tm(s.champ))} (${N(s.champ)})`:`<span class="r">${s.done?"No champion recorded":"In progress"}</span>`}</span><span></span>${s.runner?`<div class="m">Runner-up: ${esc(tm(s.runner))} (${N(s.runner)})</div>`:""}</div>`).join("")+`</div>`;
+  // All-time standings
+  h+=`<div class="card hcard"><h2>All-time standings</h2>`+ids.map((o,k)=>{const m=mgr[o];
+    return`<div class="hrow${o===me?" me":""}"><span>${k+1}. ${N(o)}${m.titles?` ${"🏆".repeat(m.titles)}`:""}</span><b>${rec(m)} · ${pct(m)}</b><div class="m">PF ${num(m.pf)} · PA ${num(m.pa)} · ${(m.pf/Math.max(1,m.g)).toFixed(1)} per game · ${m.seasons} season${m.seasons>1?"s":""} · ${m.po?`playoffs ${m.po}× (${m.pw}-${m.pl})`:"no playoffs"}${m.runner?` · runner-up ${m.runner}×`:""}</div></div>`}).join("")+`</div>`;
+  // Head to head
+  const opp=Object.entries(h2h[who]||{}).sort((a,b)=>(b[1].w-b[1].l)-(a[1].w-a[1].l)||b[1].pf-a[1].pf);
+  h+=`<div class="card hcard"><h2>Head-to-head <select id="hi_who" aria-label="Manager">${ids.map(o=>`<option value="${esc(o)}"${o===who?" selected":""}>${N(o)}${o===me?" (you)":""}</option>`).join("")}</select></h2>`+
+    (opp.length?opp.map(([o,x])=>`<div class="hrow"><span>vs ${N(o)}</span><b class="${x.w>x.l?"w":x.w<x.l?"l":""}">${rec(x)}</b><div class="m">PF ${num(x.pf)} · PA ${num(x.pa)} · avg ${(x.pf/Math.max(1,x.w+x.l+x.t)).toFixed(1)}–${(x.pa/Math.max(1,x.w+x.l+x.t)).toFixed(1)}${x.last?` · last: ${x.last.px>x.last.py?"W":x.last.px<x.last.py?"L":"T"} ${x.last.px.toFixed(1)}–${x.last.py.toFixed(1)} (${x.last.season} wk ${x.last.week})`:""}</div></div>`).join(""):'<div class="ok">No games yet.</div>')+`</div>`;
+  // Records
+  const R=[];
+  if(recs.hi)R.push(["Highest score",`${recs.hi.p.toFixed(2)}`,`${N(recs.hi.o)} vs ${N(recs.hi.v)}, ${when(recs.hi)}`]);
+  if(recs.lo)R.push(["Lowest score",`${recs.lo.p.toFixed(2)}`,`${N(recs.lo.o)} vs ${N(recs.lo.v)}, ${when(recs.lo)}`]);
+  if(recs.blow)R.push(["Biggest blowout",`by ${recs.blow.m.toFixed(2)}`,`${N(recs.blow.w)} ${recs.blow.pw.toFixed(1)}–${recs.blow.pl.toFixed(1)} ${N(recs.blow.l)}, ${when(recs.blow)}`]);
+  if(recs.close)R.push(["Closest game",recs.close.m?`by ${recs.close.m.toFixed(2)}`:"Tie",`${N(recs.close.w)} ${recs.close.pw.toFixed(2)}–${recs.close.pl.toFixed(2)} ${N(recs.close.l)}, ${when(recs.close)}`]);
+  if(bestSeason)R.push(["Best regular season",rec(bestSeason),`${N(bestSeason.o)}, ${bestSeason.season} (${num(bestSeason.pf)} PF)`]);
+  if(mostPts)R.push(["Most points in a season",num(mostPts.pf),`${N(mostPts.o)}, ${mostPts.season} (${(mostPts.pf/mostPts.g).toFixed(1)} per game)`]);
+  if(best.w.n)R.push(["Longest win streak",`${best.w.n} games`,`${N(best.w.o)}, ${when(best.w.from)} to ${when(best.w.to)}`]);
+  if(best.l.n)R.push(["Longest losing streak",`${best.l.n} games`,`${N(best.l.o)}, ${when(best.l.from)} to ${when(best.l.to)}`]);
+  h+=`<div class="card hcard"><h2>League records</h2>`+(R.map(([a,b,c])=>`<div class="hrow"><span>${a}</span><b>${b}</b><div class="m">${c}</div></div>`).join("")||'<div class="ok">No games yet.</div>')+`</div>`;
+  // Luck
+  const luck=ids.map(o=>{const m=mgr[o],ap=(m.aw+m.at/2)/Math.max(1,m.aw+m.al+m.at),ac=(m.w+m.t/2)/Math.max(1,m.g);return{o,m,ap,ac,d:ac-ap}}).sort((a,b)=>b.d-a.d);
+  h+=`<div class="card hcard"><h2>Luck index</h2><div class="ok" style="margin-bottom:4px">Actual record vs all-play record (as if you'd played every team every week).</div>`+
+    luck.map(x=>`<div class="hrow${x.o===me?" me":""}"><span>${N(x.o)}</span><b class="${x.d>0.005?"w":x.d<-0.005?"l":""}">${x.d>=0?"+":""}${(x.d*100).toFixed(1)}%</b><div class="m">Actual ${rec(x.m)} (${pct(x.m)}) · all-play ${x.m.aw}-${x.m.al}${x.m.at?"-"+x.m.at:""} (${(x.ap).toFixed(3).replace(/^0/,"")})${x===luck[0]&&x.d>0?" · luckiest":x===luck[luck.length-1]&&x.d<0?" · unluckiest":""}</div></div>`).join("")+`</div>`;
+  // Season by season
+  h+=`<div class="card hcard"><h2>Season by season</h2>`+seasonRows.slice().reverse().map(({s,tm,top,pts})=>`<div class="hrow"><span><b>${s.season}</b>${s.done?"":` <span class="r">(${s.weeks?`through week ${s.weeks}`:"not started"})</span>`}</span><span class="r">${s.games.length} games</span><div class="m">${s.champ?`Champion ${esc(tm(s.champ))}${s.third?` · 3rd ${esc(tm(s.third))}`:""} · `:""}${top?`Best record ${esc(tm(top[0]))} ${rec(top[1])}`:""}${pts?` · Most points ${esc(tm(pts[0]))} ${num(pts[1].pf)}`:""}</div></div>`).join("")+`</div>`;
+  $("hi_out").innerHTML=h;
+}
+$("hi_go").onclick=hiRun;
+$("hi_league").onchange=()=>hiLoad().catch(e=>$("hi_status").innerHTML=`<span class="err">${esc(e.message)}</span>`);
+$("hi_out").addEventListener("change",e=>{if(e.target.id==="hi_who"){HI.who=e.target.value;hiRender()}});
+
+const TABS=["lineup","fa","weather","trade","power","hist"];
 function showTab(t){if(!TABS.includes(t))t="lineup";
   for(const k of TABS){$("p_"+k).hidden=k!==t;$("tb_"+k).setAttribute("aria-selected",String(k===t))}
   store.set("tab",t);if(location.hash!=="#"+t)history.replaceState(null,"","#"+t);
