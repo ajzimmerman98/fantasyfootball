@@ -10,13 +10,15 @@
 //   GET  /me/builds?limit                   Saved lineup builds, each with the newest rankings time for its week
 //   POST /me/builds                         Save builds: { builds: [...] }
 //   DELETE /me/builds/:id
+//   GET  /me/espn?season                    Your ESPN leagues (ids from profile settings.espnLeagues), in the app's league shape
 // Scheduled every 3 hours: save new versions of Boone's rankings and the week's trade value charts.
 //
-// Bindings: DB (D1). Secret: ACCESS_CODE.
+// Bindings: DB (D1). Secrets: ACCESS_CODE; ESPN_S2 and ESPN_SWID (ESPN login cookies, for private leagues).
 
 import { loadTradeValues } from "./tradevalues.js";
 import { fetchList, sleeperWeek, appLists } from "./rankings.js";
 import * as store from "./db.js";
+import { fetchLeague } from "./espn.js";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -123,6 +125,16 @@ async function handle(request, env) {
       const b = await readJson(request);
       if (!Array.isArray(b.builds) || b.builds.length > 30) throw new HttpError(400, "Expected { builds: [...] } with at most 30 builds.");
       return json({ saved: await store.addBuilds(db, b.builds) });
+    }
+    if (path === "/me/espn" && m === "GET") {
+      const ids = ((await store.getProfile(db)).settings.espnLeagues || []).map(String).filter((x) => /^\d{1,12}$/.test(x)).slice(0, 10);
+      const season = +url.searchParams.get("season") || (await sleeperWeek()).season;
+      const leagues = [], errors = [];
+      await Promise.all(ids.map(async (id) => {
+        try { leagues.push(await fetchLeague(season, id, env)); } catch (e) { errors.push({ leagueId: id, error: e.message }); }
+      }));
+      leagues.sort((a, b) => ids.indexOf(a.league_id.slice(5)) - ids.indexOf(b.league_id.slice(5)));
+      return json({ season, leagues, errors, cookies: !!(env.ESPN_S2 && env.ESPN_SWID) });
     }
     const del = path.match(/^\/me\/builds\/(\d+)$/);
     if (del && m === "DELETE") return json({ deleted: await store.deleteBuild(db, +del[1]) });
