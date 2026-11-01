@@ -367,11 +367,11 @@ function wxFlags(w){
   // Wind: label on sustained speed; gusts alone only earn "Gusty"
   const wind=w.wind??0,gust=w.gust??0;
   if(wind>=20)f.push(["Very windy","c-bad"]);else if(wind>=15)f.push(["Windy","c-flag"]);else if(gust>=30)f.push(["Gusty","c-flag"]);
-  // Precip: needs both chance (ensemble agreement) and amount (model's best guess) to call it heavy
+  // Precip: the label follows the chance; the amount only decides whether a likely event is "Heavy"
   const pop=w.pop??0,snowy=w.snow>=0.05||((w.temp??99)<=34&&w.rain<0.01);
-  const [kind,amt,heavy,some]=snowy?["snow",w.snow,0.5,0.1]:["rain",w.rain,0.25,0.1],K=kind[0].toUpperCase()+kind.slice(1);
+  const [kind,amt,heavy]=snowy?["snow",w.snow,0.5]:["rain",w.rain,0.25],K=kind[0].toUpperCase()+kind.slice(1);
   if(pop>=60&&amt>=heavy)f.push([`Heavy ${kind}`,"c-bad"]);
-  else if(pop>=60||(pop>=40&&amt>=some))f.push([`${K} likely`,"c-flag"]);
+  else if(pop>=60)f.push([`${K} likely`,"c-flag"]);
   else if(pop>=30)f.push([`${K} possible`,"c-in"]);
   if((w.code??0)>=95)f.push(["Thunderstorms","c-bad"]);
   if((w.feels??99)<=15)f.push(["Frigid","c-bad"]);else if((w.temp??99)<=28)f.push(["Cold","c-flag"]);
