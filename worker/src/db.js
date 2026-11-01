@@ -5,7 +5,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS profile (id INTEGER PRIMARY KEY CHECK (id = 1), sleeper_username TEXT, settings TEXT, updated_at TEXT)`,
   // Each saved version of a Boone list, keyed by its published time
   `CREATE TABLE IF NOT EXISTS rankings (season INTEGER NOT NULL, week INTEGER NOT NULL, list TEXT NOT NULL, pub INTEGER NOT NULL, fetched_at TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY (season, week, list, pub))`,
-  // Newest copy of each consensus (and rest-of-season) list: these change many times a week, so only the latest is kept
+  // Newest copy of each FantasyPros consensus, Sleeper projections and rest-of-season list: these change many times a week, so only the latest is kept
   `CREATE TABLE IF NOT EXISTS rankings_latest (source TEXT NOT NULL, kind TEXT NOT NULL, season INTEGER NOT NULL, week INTEGER NOT NULL, list TEXT NOT NULL, pub INTEGER NOT NULL, fetched_at TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY (source, kind, season, week, list))`,
   `CREATE TABLE IF NOT EXISTS trade_values (season INTEGER NOT NULL, week INTEGER NOT NULL, pos TEXT NOT NULL, published TEXT, fetched_at TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY (season, week, pos))`,
   `CREATE TABLE IF NOT EXISTS lineup_builds (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, season INTEGER, week INTEGER, league_id TEXT, league_name TEXT, scoring TEXT, rankings_pub INTEGER, source TEXT, result TEXT NOT NULL)`,
@@ -89,8 +89,8 @@ export async function addBuilds(db, builds) {
 }
 // Each build comes back with the newest publish time of its rankings source for its week, so the app can tell whether it's expired
 export async function listBuilds(db, limit = 30) {
-  const { results } = await db.prepare(`SELECT b.*, CASE WHEN b.source = 'ecr'
-      THEN (SELECT MAX(pub) FROM rankings_latest r WHERE r.source = 'ecr' AND r.kind = 'week' AND r.season = b.season AND r.week = b.week)
+  const { results } = await db.prepare(`SELECT b.*, CASE WHEN b.source IN ('ecr', 'sleeper')
+      THEN (SELECT MAX(pub) FROM rankings_latest r WHERE r.source = b.source AND r.kind = 'week' AND r.season = b.season AND r.week = b.week)
       ELSE (SELECT MAX(pub) FROM rankings r WHERE r.season = b.season AND r.week = b.week) END AS latest_pub
     FROM lineup_builds b ORDER BY b.created_at DESC, b.league_name LIMIT ?`).bind(limit).all();
   return results.map((r) => ({

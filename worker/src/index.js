@@ -4,7 +4,8 @@
 //   GET  /trade-values                      Boone's latest trade value charts (?refresh skips the 1-hour cache)
 //   GET  /rankings?season&week&scoring&source&kind
 //                                           QB, FLEX, K, DEF lists (scoring = PPR | HALF; defaults to Sleeper's current week).
-//                                           source = boone (default) | ecr (FantasyPros consensus); kind = week (default) | ros (consensus only)
+//                                           source = boone (default) | ecr (FantasyPros consensus) | sleeper (Sleeper projections);
+//                                           kind = week (default) | ros (consensus only)
 //   GET  /trade-values/fantasycalc?ppr&qbs&teams   FantasyCalc redraft values for a league format, rescaled so the top player is 100
 //   GET  /rankings/status?season&week       Newest publish time of Boone's rankings for that week
 //   GET  /health
@@ -14,7 +15,7 @@
 //   POST /me/builds                         Save builds: { builds: [...] }
 //   DELETE /me/builds/:id
 //   GET  /me/espn?season                    Your ESPN leagues (ids from profile settings.espnLeagues), in the app's league shape
-// Scheduled every 3 hours: save new versions of Boone's and the consensus weekly rankings, and the week's trade value charts.
+// Scheduled every 3 hours: save new versions of the weekly rankings from every source (Boone, FantasyPros consensus, Sleeper projections), and the week's trade value charts.
 //
 // Bindings: DB (D1). Secrets: ACCESS_CODE; ESPN_S2 and ESPN_SWID (ESPN login cookies, for private leagues).
 
