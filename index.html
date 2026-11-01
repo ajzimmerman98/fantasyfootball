@@ -97,6 +97,9 @@ select.full{width:100%;height:44px}
 .install[hidden]{display:none}.install span{flex:1}.install button{width:auto;padding:8px 12px;font-size:14px}
 .mu{background:var(--bg);border-radius:10px;padding:8px 10px;margin:0 0 8px;font-size:14px}.mu-top{display:flex;justify-content:space-between;gap:8px}.mu-p{font-weight:700;white-space:nowrap}.mu-p.up{color:var(--good)}.mu-p.down{color:var(--bad)}
 .mu-bar{height:6px;border-radius:3px;background:var(--bad);opacity:.85;margin:6px 0 4px;overflow:hidden}.mu-bar i{display:block;height:100%;background:var(--good)}.mu-s{color:var(--muted);font-size:12px}.mu-s b{color:var(--text)}
+.tr-up{color:var(--good);font-size:11px;font-weight:600}.tr-dn{color:var(--bad);font-size:11px;font-weight:600}
+.fwarn{background:var(--card);border:1px solid var(--warn);color:var(--text);border-radius:10px;padding:8px 10px;margin:4px 0 10px;font-size:13px}.fwarn div+div{margin-top:4px}
+.gm{font-size:12px;color:var(--muted);margin-top:1px}.gm .chip{font-size:11px;padding:0 6px;margin:0 0 0 5px;vertical-align:1px}
 .idea .meta{color:var(--muted);font-size:13px;margin-top:6px}.idea .meta .up{color:var(--good);font-weight:600}.idea .meta .down{color:var(--warn);font-weight:600}.idea button{margin-top:8px;padding:9px;font-size:15px}
 </style>
 </head>
@@ -126,16 +129,18 @@ select.full{width:100%;height:44px}
 <div class="row"><input id="debug" type="checkbox"><label for="debug" style="margin:0;color:var(--text)">Show debug info</label></div>
 <button id="go">Build my lineups</button>
 <div id="status"></div>
+<div id="l_warn" class="fwarn" hidden></div>
 <div id="out"></div>
 <button class="link" id="refresh">Refresh player data</button>
 <div id="saved"></div>
-<small>Build my lineups loads this week's rankings from the source you pick: Justin Boone, the FantasyPros consensus of all its experts, or Sleeper projections (ranked by projected points). Each league uses its own PPR or half-PPR scoring (standard scoring leagues use half-PPR). Pts = Sleeper's projected points in each league's own scoring. Sleeper's API is read-only, so make the swaps in the Sleeper app. Unranked players are usually on bye. TV = rest-of-season trade value for that league's format, from the source picked on the Trades tab.</small>
+<small>Build my lineups loads this week's rankings from the source you pick: Justin Boone, the FantasyPros consensus of all its experts, or Sleeper projections (ranked by projected points). Each league uses its own PPR or half-PPR scoring (standard scoring leagues use half-PPR). Pts = Sleeper's projected points in each league's own scoring. Sleeper's API is read-only, so make the swaps in the Sleeper app. Each player shows his kickoff and, for outdoor games, weather flags (same sources as the Weather tab). Once a game starts its players are locked: starters stay put and bench players can't come in. Unranked players are usually on bye. TV = rest-of-season trade value for that league's format, from the source picked on the Trades tab.</small>
 </section>
 <section class="panel" id="p_fa" role="tabpanel" aria-labelledby="tb_fa" hidden>
 <label for="fa_src">Rank free agents by</label>
 <select id="fa_src" class="full"><optgroup label="This week"><option value="boone:week">Justin Boone</option><option value="ecr:week">FantasyPros</option><option value="sleeper:week">Sleeper projections</option></optgroup><optgroup label="Rest of season"><option value="tvboone:ros">Justin Boone trade values</option><option value="tvfc:ros">FantasyCalc trade values</option><option value="ecr:ros">FantasyPros rankings</option></optgroup></select>
 <div class="loadrow"><button id="fa_go">Find free agents</button></div>
 <div id="fa_status" class="status"></div>
+<div id="fa_warn" class="fwarn" hidden></div>
 <div id="fa_ui" hidden>
 <div class="loadrow" style="margin-top:4px"><select id="fa_league" class="full" style="flex:1;min-width:0" aria-label="League"></select><select id="fa_pos" style="height:44px" aria-label="Position"><option value="ALL">All</option><option>QB</option><option>RB</option><option>WR</option><option>TE</option><option>K</option><option>DEF</option></select></div>
 <div id="fa_out"></div>
@@ -146,6 +151,7 @@ select.full{width:100%;height:44px}
 <label for="tr_vsrc">Trade values</label><select id="tr_vsrc" class="full"><option value="boone">Justin Boone's chart</option><option value="fc">FantasyCalc (based on real trades)</option><option value="avg">Average of Justin Boone and FantasyCalc</option></select>
 <div class="loadrow"><button id="tr_go">Load leagues &amp; trade values</button></div>
 <div id="tr_status" class="status"></div>
+<div id="tr_warn" class="fwarn" hidden></div>
 <div id="tr_ui" hidden>
 <label for="tr_league">League</label><select id="tr_league" class="full"></select>
 <label for="tr_team">Trade partner</label><select id="tr_team" class="full"></select>
@@ -156,13 +162,14 @@ select.full{width:100%;height:44px}
 <div class="card"><h2>You get</h2><div id="tr_theirs"></div></div>
 <div id="tr_sum" class="tsum"></div>
 </div>
-<small id="tr_src">Boone's values come from Justin Boone's rest-of-season trade value charts on Yahoo. FantasyCalc's come from real fantasy trades, rescaled so its top player is 100 (close to Boone's scale). Each league uses its own format: PPR, half-PPR or standard, 1QB or superflex, and (for FantasyCalc) its number of teams. The same choice sets the TV numbers on the Lineup tab.</small>
+<small id="tr_src">Boone's values come from Justin Boone's rest-of-season trade value charts on Yahoo. FantasyCalc's come from real fantasy trades, rescaled so its top player is 100 (close to Boone's scale). ▲/▼ = change since Justin Boone's previous weekly chart, or FantasyCalc's 30-day change. Each league uses its own format: PPR, half-PPR or standard, 1QB or superflex, and (for FantasyCalc) its number of teams. The same choice sets the TV numbers on the Lineup tab.</small>
 </section>
 <section class="panel" id="p_power" role="tabpanel" aria-labelledby="tb_power" hidden>
 <label for="pw_src">Rank teams by</label>
 <select id="pw_src" class="full"><optgroup label="Rest of season"><option value="boone">Justin Boone trade values</option><option value="ecr">FantasyPros rankings</option><option value="fc">FantasyCalc trade values</option></optgroup><optgroup label="This week"><option value="wk:boone">Justin Boone</option><option value="wk:ecr">FantasyPros</option><option value="wk:sleeper">Sleeper projections</option></optgroup></select>
 <div class="loadrow"><button id="pw_go">Rank teams</button></div>
 <div id="pw_status" class="status"></div>
+<div id="pw_warn" class="fwarn" hidden></div>
 <div id="pw_ui" hidden><select id="pw_league" class="full" aria-label="League"></select><div id="pw_out"></div></div>
 <small>Rest of season: score = starting lineup + depth. Starting lineup is the best lineup each roster can field (QB, RB, WR, TE and flex spots) at full value. Depth adds the six best bench players at 35%, 30%, 25%, 20%, 15% and 10% of their value. IR and taxi players don't count; kickers and defenses aren't valued. FantasyPros ranks are turned into values on a curve (#1 = 100; QBs scaled lower in 1QB leagues) so they can be added up. Each league uses its own format.<br><br>This week: score = projected points of the best starting lineup each team can field this week, kickers and defenses included; players who are out or on bye don't count, and the bench doesn't either. Sleeper projections use Sleeper's projected points; Justin Boone and FantasyPros ranks are turned into estimated points on a curve for each position (e.g. FLEX #1 ≈ 24, #50 ≈ 11.5).</small>
 </section>
@@ -299,33 +306,45 @@ function candidates(roster,starters,players,ranks,allowDoubt){
   }
   return out;
 }
-function build(slots,cands){
-  const res=Array(slots.length).fill(null),used=new Set(),av=cands.filter(c=>!c.out);
-  slots.forEach((s,i)=>{if(!STRICT.has(s))return;
+// fixed = {slot index: player} for starters whose game has started (they stay); frozen = ids that can't be moved
+function build(slots,cands,fixed={},frozen=new Set()){
+  const res=Array(slots.length).fill(null),used=new Set(),av=cands.filter(c=>!c.out&&!frozen.has(c.id));
+  for(const [i,c] of Object.entries(fixed)){res[i]=c;used.add(c.id)}
+  slots.forEach((s,i)=>{if(res[i]||!STRICT.has(s))return;
     const pool=av.filter(c=>c.pos===s&&!used.has(c.id)).sort((a,b)=>cmp([a.rp,a.cur?0:1],[b.rp,b.cur?0:1]));
     if(pool[0]){res[i]=pool[0];used.add(pool[0].id)}});
-  for(const st of FLEX_ORDER)slots.forEach((s,i)=>{if(s!==st)return;
+  for(const st of FLEX_ORDER)slots.forEach((s,i)=>{if(s!==st||res[i])return;
     const pool=av.filter(c=>FLEX[s].includes(c.pos)&&!used.has(c.id)).sort((a,b)=>cmp(fk(a,s),fk(b,s)));
     if(pool[0]){res[i]=pool[0];used.add(pool[0].id)}});
   return res;
 }
 
 const rankTxt=c=>c.rp===Infinity?"--":(c.pr?c.pr+" · ":"")+"#"+c.rp;
+const fmtKick=d=>d.toLocaleString([],{weekday:"short",hour:"numeric",minute:"2-digit"});
 const ptsHtml=v=>v==null?"":`<div class="pts">${v} pts</div>`;
 function render(lg,roster,cur,players,ranks,opts){
   const {starters,src}=cur,fmt=leagueFormat(lg);
   const pv=c=>opts.pts?opts.pts(players[c.id]):null;
-  const tvTag=c=>{const v=tradeValue(players[c.id],fmt,c.id);return v==null?"":` <span class="tv">TV ${v}</span>`};
+  const tvTag=c=>{const v=tradeValue(players[c.id],fmt,c.id);return v==null?"":` <span class="tv">TV ${v}${trendHtml(tradeTrend(players[c.id],fmt,c.id))}</span>`};
   const slots=lg.roster_positions.filter(p=>!NON.has(p));
-  const cands=candidates(roster,starters,players,ranks,opts.allowDoubt),line=build(slots,cands),byId=Object.fromEntries(cands.map(c=>[c.id,c]));
+  const cands=candidates(roster,starters,players,ranks,opts.allowDoubt),byId=Object.fromEntries(cands.map(c=>[c.id,c]));
+  // Kickoff/weather from the NFL schedule; once a player's game starts he's locked: starters stay put, bench players can't come in
+  const gm=c=>opts.games?opts.games[teamKey(c.team)]||null:null,locked=c=>{const g=gm(c);return!!g&&g.state!=="pre"};
+  const fixed={},frozen=new Set();
+  if(opts.games){const cs=starters||[];slots.forEach((s,i)=>{const c=byId[cs[i]];if(c&&locked(c))fixed[i]=c});for(const c of cands)if(locked(c))frozen.add(c.id)}
+  const line=build(slots,cands,fixed,frozen);
+  const gameLine=c=>{if(!opts.games)return"";const g=gm(c);if(!g)return`<div class="gm">No game this week</div>`;
+    const opp=teamKey(c.team)===g.home?`vs ${g.away}`:`@ ${g.home}`,when=g.state==="pre"?fmtKick(g.date):g.state==="in"?"Locked · in progress":"Locked · final";
+    const fl=g.state==="pre"&&g.v?.roof==="open"?wxFlags(g.wx).map(([t,k])=>`<span class="chip ${k}">${esc(t)}</span>`).join(""):"";
+    return`<div class="gm">${g.state!=="pre"?"🔒 ":""}${esc(when)} ${esc(opp)}${fl}</div>`};
   let h=`<div class="card"><h2>${esc(lg.name)}</h2>`,mu=null;
   // Matchup preview: projected points of the suggested lineup (and your current one) vs the opponent's set lineup
   if(opts.opp&&opts.pts){const sum=a=>a.reduce((t,v)=>t+(v||0),0),my=sum(line.filter(Boolean).map(pv)),curPts=sum(realIds(starters).map(id=>opts.pts(players[id]))),them=sum(opts.opp.starters.map(id=>opts.pts(players[id])));
     if(my>0||them>0){mu={opp:opts.opp.name,my:+my.toFixed(1),them:+them.toFixed(1),win:Math.round(winProb(my,them)*100)};h+=matchupHtml(opts.opp,my,curPts,them,opts.week)}}
   slots.forEach((s,i)=>{const c=line[i];
     if(!c){h+=`<div class="slot"><span class="s">${esc(s)}</span><span>Nobody eligible</span><span></span></div>`;return}
-    const notes=[];if(c.rp===Infinity&&(ranks[c.pos]||(["RB","WR","TE"].includes(c.pos)&&ranks.FLEX)))notes.push("UNRANKED (bye?)");if(c.inj)notes.push(c.inj);
-    h+=`<div class="slot"><span class="s">${esc(s.replace("_"," "))}</span><span>${esc(c.name)} <span class="r">${esc(c.pos)} ${esc(c.team||"")}</span>${tvTag(c)}${notes.length?`<div class="n">${esc(notes.join(", "))}</div>`:""}</span><span class="r">${esc(rankTxt(c))}${ptsHtml(pv(c))}</span></div>`});
+    const notes=[];if(opts.games&&!gm(c))notes.push("BYE");else if(c.rp===Infinity&&(ranks[c.pos]||(["RB","WR","TE"].includes(c.pos)&&ranks.FLEX)))notes.push(opts.games?"UNRANKED":"UNRANKED (bye?)");if(c.inj)notes.push(c.inj);
+    h+=`<div class="slot"><span class="s">${esc(s.replace("_"," "))}</span><span>${esc(c.name)} <span class="r">${esc(c.pos)} ${esc(c.team||"")}</span>${tvTag(c)}${notes.length?`<div class="n">${esc(notes.join(", "))}</div>`:""}${gameLine(c)}</span><span class="r">${esc(rankTxt(c))}${ptsHtml(pv(c))}</span></div>`});
   const nw=new Set(line.filter(Boolean).map(c=>c.id)),old=new Set(realIds(starters));
   const hasL=c=>ranks[c.pos]||(["RB","WR","TE"].includes(c.pos)&&ranks.FLEX);
   const tg=c=>c.out?` (${c.inj||"out"})`:!c.pos||!hasL(c)?"":c.rp===Infinity?" (unranked)":` (${c.pr?c.pr+", ":""}#${c.rp})`;
@@ -333,11 +352,13 @@ function render(lg,roster,cur,players,ranks,opts){
   const starts=[...nw].filter(i=>!old.has(i)).map(i=>byId[i]).sort(byName);
   const sits=[...old].filter(i=>!nw.has(i)).map(i=>byId[i]||{name:players[i]?.n||`Unknown player (${i})`}).sort(byName);
   h+=`<div class="swaps">`;
+  const nLocked=Object.keys(fixed).length;
+  if(nLocked)h+=`<div class="ok" style="margin-bottom:4px">🔒 ${nLocked} starter${nLocked>1?"s":""} already playing or done, so ${nLocked>1?"they stay":"he stays"} put.</div>`;
   if(!starts.length&&!sits.length)h+=`<div class="ok">No changes. Your lineup already matches the rankings.</div>`;
   else{starts.forEach(c=>h+=`<div><span class="start">START</span> ${esc(c.name)}${esc(tg(c))}</div>`);sits.forEach(c=>h+=`<div><span class="sit">SIT</span> ${esc(c.name)}${esc(tg(c))}</div>`)}
   h+=`</div>`;
   const bench=cands.filter(c=>!nw.has(c.id)).sort((a,b)=>a.rp===b.rp?a.name.localeCompare(b.name):a.rp<b.rp?-1:1);
-  if(bench.length)h+=`<div class="bn"><h3>Bench</h3>`+bench.map(c=>`<div class="slot"><span class="s">BN</span><span>${esc(c.name)} <span class="r">${esc(c.pos)} ${esc(c.team||"")}</span>${tvTag(c)}${c.inj?`<div class="n">${esc(c.inj)}</div>`:""}</span><span class="r">${esc(rankTxt(c))}${ptsHtml(pv(c))}</span></div>`).join("")+`</div>`;
+  if(bench.length)h+=`<div class="bn"><h3>Bench</h3>`+bench.map(c=>`<div class="slot"><span class="s">BN</span><span>${esc(c.name)} <span class="r">${esc(c.pos)} ${esc(c.team||"")}</span>${tvTag(c)}${c.inj?`<div class="n">${esc(c.inj)}</div>`:""}${gameLine(c)}</span><span class="r">${esc(rankTxt(c))}${ptsHtml(pv(c))}</span></div>`).join("")+`</div>`;
   if(opts.debug)h+=debugBlock(slots,starters,line,src,players,byId);
   if(opts.collect)opts.collect.push({leagueId:lg.league_id,leagueName:lg.name,scoring:opts.scoring,rankingsPub:opts.pub,result:{matchup:mu,
     slots:slots.map((s,i)=>{const c=line[i];return c?{slot:s,name:c.name,pos:c.pos,team:c.team||"",rank:rankTxt(c),pts:pv(c)}:{slot:s,name:null}}),
@@ -396,7 +417,7 @@ async function addEspn(season,myId,leagues,rosters,matchups,players,st){
 async function run(force){
   const user=$("user").value.trim(),source=$("rsrc").value;
   store.set("user",user);store.set("doubt",$("doubt").checked?"1":"0");store.set("debug",$("debug").checked?"1":"0");
-  const out=$("out"),st=$("status");out.innerHTML="";
+  const out=$("out"),st=$("status");out.innerHTML="";showWarn("l_warn",[]);
   if(!user){st.textContent="Enter your Sleeper username.";return}
   $("go").disabled=true;
   try{
@@ -407,19 +428,21 @@ async function run(force){
     const need=[...new Set(idx.map(i=>scOf(leagues[i])))],ptsNeed=[...new Set(idx.map(i=>leagueFormat(leagues[i]).sc))];
     st.textContent=`Loading ${srcLabel(source)} rankings…`;
     // Rankings from the chosen source; Sleeper projections (in each league's own scoring) for the points; trade values for TV tags
-    const [rk,pj,,users]=await Promise.all([
+    const [rk,pj,,users,games]=await Promise.all([
       Promise.all(need.map(sc=>rankLists(source,"week",state.season,week,sc))),
       Promise.all(ptsNeed.map(sc=>rankLists("sleeper","week",state.season,week,sc).catch(()=>null))),
       apiBase()?ensureValues(idx.map(i=>leagues[i])):null,
       // Team names for the matchup preview (Sleeper leagues with a matchup this week)
-      Promise.all(leagues.map((lg,i)=>Array.isArray(matchups[i])&&matchups[i].length?api(`/league/${lg.league_id}/users`).catch(()=>[]):null))]);
+      Promise.all(leagues.map((lg,i)=>Array.isArray(matchups[i])&&matchups[i].length?api(`/league/${lg.league_id}/users`).catch(()=>[]):null)),
+      gameInfo(state,week).catch(()=>null)]);
     const fatal=rk.flat().find(r=>r.err&&/not Boone/.test(r.err.message));if(fatal)throw fatal.err;
     const R={},P={},pubs={};
     need.forEach((sc,j)=>{const t={};let pub=0;LISTS.forEach(([k],n)=>{const r=rk[j][n];if(r.ps&&r.ps.length){t[k]=parseList(listText(r.ps),k);pub=Math.max(pub,r.pub)}});if(Object.keys(t).length){R[sc]=t;pubs[sc]=pub}});
     if(!Object.keys(R).length){const e=rk.flat().find(r=>r.err);throw e?e.err:new Error(`${srcLabel(source)} week ${week} rankings aren't published yet.`)}
     ptsNeed.forEach((sc,j)=>{const res=pj[j];if(!res)return;const t={};LISTS.forEach(([k],n)=>{const r=res[n];if(r&&r.ps&&r.ps.length)t[k]={table:parseList(listText(r.ps),k),pts:Object.fromEntries(r.ps.map(p=>[p.r,p.pts]))}});if(Object.keys(t).length)P[sc]=t});
     st.textContent=`Season ${state.season}, week ${week}. ${idx.length} league(s). ${srcLabel(source)}${source==="sleeper"?"":" rankings"} updated ${fmtTime(Math.max(...Object.values(pubs)))}.`+
-      (Object.keys(P).length?"":" Projected points unavailable.")+espnErrors.map(e=>` ESPN ${e.leagueId}: ${e.error}`).join("");
+      espnErrors.map(e=>` ESPN ${e.leagueId}: ${e.error}`).join("");
+    showWarn("l_warn",[...rk.map(r=>r.warn),...pj.map(r=>r&&r.warn),Object.keys(P).length?null:"Sleeper projections didn't load, so projected points and the matchup preview are missing.",...(apiBase()?valueWarns():[])]);
     const opts={allowDoubt:$("doubt").checked,debug:$("debug").checked,collect:[]};
     leagues.forEach((lg,i)=>{
       const mine=mineAll[i],sc=scOf(lg),ranks=R[sc];
@@ -427,7 +450,7 @@ async function run(force){
       if(!ranks){out.insertAdjacentHTML("beforeend",`<div class="card"><h2>${esc(lg.name)}</h2><div class="ok">No ${sc==="HALF"?"half-PPR":"PPR"} rankings available.</div></div>`);return}
       const pt=P[leagueFormat(lg).sc];
       const pts=p=>{const k=p&&secOf(p.p),l=pt&&k&&pt[k];if(!l)return null;const r=lookup(l.table,p);return r==null?null:l.pts[r]??null};
-      out.insertAdjacentHTML("beforeend",render(lg,mine,curAll[i],players,ranks,{...opts,pts,scoring:sc,pub:pubs[sc],week,opp:opponent(mine,matchups[i],rosters[i],users[i])}));
+      out.insertAdjacentHTML("beforeend",render(lg,mine,curAll[i],players,ranks,{...opts,pts,games,scoring:sc,pub:pubs[sc],week,opp:opponent(mine,matchups[i],rosters[i],users[i])}));
     });
     if(synced())saveBuilds(+state.season,week,source,opts.collect).catch(e=>{st.textContent+=` Couldn't save: ${e.message}`});
   }catch(e){st.innerHTML=`<span class="err">${esc(e.message)}</span>`}
@@ -459,8 +482,8 @@ const API_BASE_DEFAULT="https://boone-api.ajzimmerman98.workers.dev"; // Cloudfl
 const apiBase=()=>store.get("api_url")||API_BASE_DEFAULT;
 let TV=null; // {data, idx:{QB:{normName:values}}}
 function indexTV(data){
-  const idx={};for(const [pos,c] of Object.entries(data.charts||{})){idx[pos]={};for(const p of c.players){const k=norm(p.name);if(k&&!(k in idx[pos]))idx[pos][k]=p.values}}
-  return{data,idx};
+  const ix=charts=>{const idx={};for(const [pos,c] of Object.entries(charts||{})){idx[pos]={};for(const p of c.players||[]){const k=norm(p.name);if(k&&!(k in idx[pos]))idx[pos][k]=p.values}}return idx};
+  return{data,idx:ix(data.charts),prev:ix(data.prev)};
 }
 async function ensureTV(force){
   if(!apiBase())throw new Error("Trade values need the Cloudflare Worker, which isn't connected yet.");
@@ -490,8 +513,8 @@ function matchIdx(t,p){
   for(const k of keys){let best=null,bs=0;for(const n in t){const x=sim(k,n);if(x>bs){bs=x;best=n}}if(bs>=0.9)return t[best]}
   return null;
 }
-function tvBoone(p,fmt){
-  if(!TV||!p)return null;const v=matchIdx(TV.idx[p.p],p);if(!v)return null;
+function tvBoone(p,fmt,prev){
+  if(!TV||!p)return null;const v=matchIdx((prev?TV.prev:TV.idx)?.[p.p],p);if(!v)return null;
   const val=p.p==="QB"?v[fmt.qb]:v[fmt.sc];
   return typeof val==="number"?val:null;
 }
@@ -500,8 +523,9 @@ const FC={}; // format key -> {ts, data, sid:{sleeperId:value}, idx:{pos:{normNa
 const fcKey=f=>`${f.ppr}|${f.qb==="2QB"?2:1}|${f.teams}`;
 function indexFC(data){
   const sid={},idx={};
-  for(const p of data.players||[]){if(p.sid)sid[p.sid]=p.value;const t=idx[p.pos]||(idx[p.pos]={}),k=norm(p.name);if(k&&!(k in t))t[k]=p.value}
-  return{data,sid,idx};
+  const tsid={},tidx={};
+  for(const p of data.players||[]){if(p.sid){sid[p.sid]=p.value;tsid[p.sid]=p.trend}const t=idx[p.pos]||(idx[p.pos]={}),tt=tidx[p.pos]||(tidx[p.pos]={}),k=norm(p.name);if(k&&!(k in t)){t[k]=p.value;tt[k]=p.trend}}
+  return{data,sid,idx,tsid,tidx};
 }
 async function ensureFC(fmt){
   const k=fcKey(fmt);
@@ -514,10 +538,10 @@ async function ensureFC(fmt){
   store.set("fc_"+k,JSON.stringify({ts:Date.now(),data}));
   return FC[k]={...indexFC(data),ts:Date.now()};
 }
-function tvFC(p,fmt,id){
+function tvFC(p,fmt,id,trend){
   const d=FC[fcKey(fmt)];if(!d||!p)return null;
-  if(id&&d.sid[id]!=null)return d.sid[id]; // Sleeper players match exactly by id
-  return matchIdx(d.idx[p.p],p);
+  if(id&&d.sid[id]!=null)return trend?d.tsid?.[id]??null:d.sid[id]; // Sleeper players match exactly by id
+  return matchIdx(trend?d.tidx?.[p.p]:d.idx[p.p],p);
 }
 // The chosen source's value for a player in a league format. id = Sleeper player id, when known.
 function tradeValue(p,fmt,id){
@@ -527,6 +551,21 @@ function tradeValue(p,fmt,id){
   const a=tvBoone(p,fmt),b=tvFC(p,fmt,id);
   return a==null?b:b==null?a:Math.round((a+b)/2);
 }
+// Feed health for trade values: the Worker served an older copy because the live source failed
+function valueWarns(s=tvSrc()){
+  const out=[];
+  if(s!=="fc"&&TV&&TV.data.stale)out.push(`Justin Boone's trade values couldn't be refreshed (${TV.data.staleReason}), so you're seeing the last copy that loaded.`);
+  if(s!=="boone")for(const x of Object.values(FC))if(x.data.stale)out.push(`FantasyCalc values couldn't be refreshed (${x.data.staleReason}), so you're seeing the last copy that loaded.`);
+  return out;
+}
+// Change in value: Justin Boone = since his previous weekly chart; FantasyCalc = last 30 days; average = none
+function tradeTrend(p,fmt,id){
+  const s=tvSrc();
+  if(s==="boone"){const a=tvBoone(p,fmt),b=tvBoone(p,fmt,true);return a==null||b==null?null:a-b}
+  if(s==="fc"){const t=tvFC(p,fmt,id,true);return typeof t==="number"?t:null}
+  return null;
+}
+const trendHtml=d=>d==null||!d?"":` <span class="${d>0?"tr-up":"tr-dn"}">${d>0?"▲":"▼"}${Math.abs(d)}</span>`;
 // Load whatever the chosen source needs for these leagues. Returns a list of problems (empty when all loaded).
 async function ensureValues(leagues,force){
   const s=tvSrc(),errs=[];
@@ -552,7 +591,7 @@ async function trRun(){
     $("tr_league").innerHTML=opts;
     const last=store.get("tr_league");if(last&&$("tr_league").querySelector(`option[value="${last}"]`))$("tr_league").value=last;
     $("tr_ui").hidden=false;
-    st.textContent=tvStatus(verr);
+    st.textContent=tvStatus(verr);showWarn("tr_warn",valueWarns());
     await trLeague();
   }catch(e){st.innerHTML=`<span class="err">${esc(e.message)}</span>`}
   $("tr_go").disabled=false;
@@ -576,10 +615,10 @@ async function trLeague(){
 }
 function trRows(roster,set,side,fmt){
   const {players}=TR.sl;
-  const rows=(roster?.players||[]).map(id=>{const p=players[id];return p&&{id,p,v:tradeValue(p,fmt,id)}}).filter(Boolean)
+  const rows=(roster?.players||[]).map(id=>{const p=players[id];return p&&{id,p,v:tradeValue(p,fmt,id),d:tradeTrend(p,fmt,id)}}).filter(Boolean)
     .sort((a,b)=>(b.v??-1)-(a.v??-1)||(a.p.n||"").localeCompare(b.p.n||""));
   if(!rows.length)return'<div class="ok">No players.</div>';
-  return rows.map(({id,p,v})=>`<label class="tp${v==null?" off":""}"><input type="checkbox" data-side="${side}" data-id="${esc(id)}"${set.has(id)?" checked":""}><span>${esc(p.n||`${p.f} ${p.l}`)} <span class="r">${esc(p.p)} ${esc(p.t||"FA")}</span></span><b>${v==null?"—":v}</b></label>`).join("");
+  return rows.map(({id,p,v,d})=>`<label class="tp${v==null?" off":""}"><input type="checkbox" data-side="${side}" data-id="${esc(id)}"${set.has(id)?" checked":""}><span>${esc(p.n||`${p.f} ${p.l}`)} <span class="r">${esc(p.p)} ${esc(p.t||"FA")}</span></span><b>${v==null?"—":v}${v==null?"":trendHtml(d)}</b></label>`).join("");
 }
 function trRender(){
   const i=+$("tr_league").value,{sl}=TR,lg=sl.leagues[i],fmt=leagueFormat(lg);
@@ -600,7 +639,7 @@ function trSum(){
 $("tr_go").onclick=trRun;
 $("tr_vsrc").value=TV_SRC[store.get("tv_src")]?store.get("tv_src"):"boone";
 $("tr_vsrc").onchange=async()=>{store.set("tv_src",$("tr_vsrc").value);saveProfile();if(!TR)return;const st=$("tr_status");st.textContent=`Loading ${tvName()} values…`;
-  const errs=await ensureValues(TR.sl.leagues.filter((lg,i)=>TR.sl.mineAll[i]));st.textContent=tvStatus(errs);$("tr_ideas").innerHTML="";await trLeague()};
+  const errs=await ensureValues(TR.sl.leagues.filter((lg,i)=>TR.sl.mineAll[i]));st.textContent=tvStatus(errs);showWarn("tr_warn",valueWarns());$("tr_ideas").innerHTML="";await trLeague()};
 $("tr_league").onchange=()=>trLeague().catch(e=>$("tr_status").innerHTML=`<span class="err">${esc(e.message)}</span>`);
 $("tr_team").onchange=()=>{TR.get.clear();trRender()};
 
@@ -769,6 +808,9 @@ async function sleeperWeek(){
 }
 // "FA" stands in for an unknown team so the position (and so the position rank) is still read
 const listText=ps=>ps.map(p=>`${p.r}. ${p.n}${p.t||p.pos?` (${p.t||"FA"}${p.pos?", "+p.pos:""})`:""}`).join("\n");
+const feedName=(source,kind)=>source==="sleeper"?"Sleeper projections":`${srcLabel(source,kind)} rankings`;
+// Feed-health banner: shows each distinct warning (or hides when there are none)
+function showWarn(id,msgs){const m=[...new Set(msgs.filter(Boolean))],el=$(id);if(!el)return;el.hidden=!m.length;el.innerHTML=m.map(x=>`<div>⚠️ ${esc(x)}</div>`).join("")}
 // One entry per LISTS item: {ps,pub} or {err}. Prefer the Worker (no third-party script in the page, and it saves each version
 // for "expired" checks); JSONP as fallback. Cached for a few minutes so tabs can share a load.
 const RL_CACHE={};
@@ -779,10 +821,17 @@ async function rankLists(source,kind,season,week,scoring){
   if(apiBase())try{
     const r=await fetch(`${apiBase()}/rankings?season=${season}&week=${week}&scoring=${scoring}&source=${source}&kind=${kind}`,{cache:"no-store"}),d=await r.json();
     if(r.status===409)return LISTS.map(()=>({err:new Error(d.error)}));
-    if(r.ok&&d.lists)res=LISTS.map(([k])=>{const l=d.lists[k];return l?{ps:l.players.map(p=>({...p,t:teamKey(p.t)})),pub:l.pub}:{ps:[],pub:0}});
+    if(r.ok&&d.lists){res=LISTS.map(([k])=>{const l=d.lists[k];return l?{ps:l.players.map(p=>({...p,t:teamKey(p.t)})),pub:l.pub,saved:l.source==="saved"}:{ps:[],pub:0}});
+      // Feed health: the Worker fell back to its saved copy because the live feed failed
+      const sv=res.filter(x=>x.saved);
+      if(sv.length)res.warn=`${feedName(source,kind)} couldn't be refreshed${d.errors&&d.errors.length?` (${d.errors[0].replace(/^\w+(:\w+)?: /,"")})`:""}, so you're seeing the saved copy from ${fmtTime(Math.max(...sv.map(x=>x.pub)))}.`;
+      else if(d.errors&&d.errors.length&&res.some(x=>x.ps.length))res.warn=`Some ${feedName(source,kind)} lists didn't load: ${d.errors.map(e=>e.split(":")[0]).join(", ")}.`;
+    }
   }catch(e){}
+  const viaWorker=!!res;
   if(!res)res=source==="sleeper"?await sleeperDirect(season,week,scoring).catch(e=>LISTS.map(()=>({err:e})))
     :await Promise.all(LISTS.map(([k])=>fetchFP(season,week,k,scoring,source,kind).catch(e=>({err:e}))));
+  if(!viaWorker&&apiBase()&&res.some(r=>r.ps&&r.ps.length))res.warn=`Couldn't reach the app's server, so ${feedName(source,kind)} came straight from the source (no saved copy if that fails).`;
   if(res.some(r=>r.ps&&r.ps.length))RL_CACHE[ck]={ts:Date.now(),res};
   return res;
 }
@@ -895,6 +944,15 @@ function precipText(w){
   if(w.rain>=0.01)return`Rain${p} · ${w.rain.toFixed(2)} in`;
   return`None expected${p?" ("+p.trim()+")":""}`;
 }
+// Kickoff, venue and (for open-air games not yet started) forecast for every game this week, by team. Cached 20 minutes.
+const GI={};
+function gameInfo(state,week){
+  const k=state.season+"|"+week,c=GI[k];if(c&&Date.now()-c.ts<20*60e3)return c.p;
+  const p=(async()=>{const games=await loadSchedule(state,week);
+    await Promise.all(games.map(async g=>{try{g.v=await venueInfo(g);if(g.state==="pre"&&g.v.roof==="open"&&g.v.lat!=null)g.wx=await forecast(g.v.lat,g.v.lon,g.date)}catch(e){}}));
+    const by={};for(const g of games){by[g.home]=g;by[g.away]=g}return by})();
+  GI[k]={ts:Date.now(),p};p.catch(()=>{delete GI[k]});return p;
+}
 let wxData=null;
 async function wxRun(){
   const user=$("user").value.trim(),st=$("w_status");store.set("user",user);
@@ -974,8 +1032,8 @@ function faFmtLabel(source,f){
 async function valueLists(source,f){
   let rows,pub;
   if(source==="tvboone"){const tv=await ensureTV();rows=[];pub=tv.ts;
-    for(const [pos,c] of Object.entries(tv.data.charts||{}))for(const p of c.players){const v=p.values[pos==="QB"?f.qb:f.sc];if(typeof v==="number"&&v>0)rows.push({n:p.name,pos,t:null,v})}}
-  else{const d=await ensureFC(f);pub=Date.parse(d.data.fetchedAt)||d.ts;rows=d.data.players.map(p=>({n:p.name,pos:p.pos,t:teamKey(p.team),v:p.value}))}
+    for(const [pos,c] of Object.entries(tv.data.charts||{}))for(const p of c.players){const k=pos==="QB"?f.qb:f.sc,v=p.values[k],pv=tv.prev?.[pos]?.[norm(p.name)]?.[k];if(typeof v==="number"&&v>0)rows.push({n:p.name,pos,t:null,v,d:typeof pv==="number"?v-pv:null})}}
+  else{const d=await ensureFC(f);pub=Date.parse(d.data.fetchedAt)||d.ts;rows=d.data.players.map(p=>({n:p.name,pos:p.pos,t:teamKey(p.team),v:p.value,d:typeof p.trend==="number"?p.trend:null}))}
   const mk=a=>a.sort((x,y)=>y.v-x.v).map((p,i)=>({...p,r:i+1}));
   const qb=mk(rows.filter(p=>p.pos==="QB")).map(p=>({...p,pos:""})),fl=mk(rows.filter(p=>p.pos!=="QB"));
   return LISTS.map(([k])=>k==="QB"?{ps:qb,pub}:k==="FLEX"?{ps:fl,pub}:{ps:[],pub:0});
@@ -984,7 +1042,7 @@ async function faRun(){
   const user=$("user").value.trim(),st=$("fa_status");store.set("user",user);
   if(!user){st.textContent="Enter your Sleeper username.";return}
   const [source,kind]=$("fa_src").value.split(":");
-  $("fa_go").disabled=true;
+  $("fa_go").disabled=true;showWarn("fa_warn",[]);
   try{
     const sl=FA&&FA.user===user&&Date.now()-FA.ts<10*60e3?FA.sl:await loadSleeper(user,false,st);
     const idx=sl.leagues.map((lg,i)=>sl.mineAll[i]?i:-1).filter(i=>i>=0);
@@ -997,6 +1055,7 @@ async function faRun(){
     const [trending,...res]=await Promise.all([api("/players/nfl/trending/add?lookback_hours=24&limit=300").catch(()=>[]),
       ...scs.map(key=>vs?valueLists(source,fmts[key]).catch(e=>LISTS.map(()=>({err:e}))):rankLists(source,kind,sl.state.season,sl.week,fmts[key].sc))]);
     const fatal=res.flat().find(r=>r.err&&/not Boone/.test(r.err.message));if(fatal)throw fatal.err;
+    showWarn("fa_warn",[...res.map(r=>r.warn),...(vs?valueWarns(source==="tvfc"?"fc":"boone"):[])]);
     // Justin Boone's charts have no NFL team: take it from the player database when the name is unique at that position
     if(vs){const tm={};for(const p of Object.values(sl.players)){if(!p.t||!["QB","RB","WR","TE"].includes(p.p))continue;const k=p.p+"|"+norm(p.n||`${p.f} ${p.l}`);tm[k]=k in tm&&tm[k]!==p.t?null:p.t}
       for(const r of res.flat())for(const e of r.ps||[])if(!e.t)e.t=tm[(e.pos||"QB")+"|"+norm(e.n)]||null}
@@ -1041,7 +1100,7 @@ function faCompute(i){
 function faRender(){
   if(!FA)return;
   const i=+$("fa_league").value,pos=$("fa_pos").value,all=faCompute(i);store.set("fa_league",FA.sl.leagues[i].league_id);store.set("fa_pos",pos);
-  const row=e=>{const meta=[e.v!=null?`Value ${e.v}`:"",e.pts!=null?`Proj ${e.pts} pts`:"",e.o!=null?`Rostered ${e.o}%`:"",e.adds?`+${fmtAdds(e.adds)} adds`:""].filter(Boolean).join(" · ");
+  const row=e=>{const meta=[e.v!=null?`Value ${e.v}${e.d?` (${e.d>0?"▲":"▼"}${Math.abs(e.d)})`:""}`:"",e.pts!=null?`Proj ${e.pts} pts`:"",e.o!=null?`Rostered ${e.o}%`:"",e.adds?`+${fmtAdds(e.adds)} adds`:""].filter(Boolean).join(" · ");
     return`<div class="fa"><span class="s">${esc(e.prl)}</span><span>${esc(e.n)} <span class="r">${esc(e.pos)}${e.t?" "+esc(e.t):""}</span>${meta?`<div class="m">${esc(meta)}</div>`:""}${e.note?`<div class="${e.note.up?"up":"bnch"}">${esc(e.note.txt)}</div>`:""}</span><span class="r">${e.flex?"#"+e.r:""}</span></div>`};
   const lg=FA.sl.leagues[i],sc=faKey(FA.source,lg),fl=faFmtLabel(FA.source,leagueFormat(lg)),vs=isValueSrc(FA.source);
   if(!FA.lists[sc]){$("fa_out").innerHTML=`<div class="card ok">No ${fl} ${vs?"values":"rankings"} available.</div>`;return}
@@ -1079,28 +1138,29 @@ async function pwRun(){
     const sl=PW&&PW.user===user&&Date.now()-PW.ts<10*60e3?PW.sl:await loadSleeper(user,false,st);
     const idx=sl.leagues.map((lg,i)=>sl.mineAll[i]?i:-1).filter(i=>i>=0);
     if(!idx.length)throw new Error("No leagues with your roster found.");
-    st.textContent=`Loading ${PW_SRC[src]}…`;
-    const fp={};let note="";
+    st.textContent=`Loading ${PW_SRC[src]}…`;showWarn("pw_warn",[]);
+    const fp={};let note="",warns=[];
     if(isWeekly(src)){const source=src.slice(3),scs=[...new Set(idx.map(i=>leagueFormat(sl.leagues[i]).sc))];let pub=0;
       const res=await Promise.all(scs.map(sc=>rankLists(source,"week",sl.state.season,sl.week,sc)));
       const fatal=res.flat().find(r=>r.err&&/not Boone/.test(r.err.message));if(fatal)throw fatal.err;
       scs.forEach((sc,j)=>{const t={};LISTS.forEach(([k],n)=>{const r=res[j][n];if(r.ps&&r.ps.length){t[k]={table:parseList(listText(r.ps),k),pts:Object.fromEntries(r.ps.map(p=>[p.r,p.pts]))};pub=Math.max(pub,r.pub)}});if(Object.keys(t).length)fp[sc]=t});
       if(!Object.keys(fp).length){const e=res.flat().find(r=>r.err);throw e?e.err:new Error(`${PW_SRC[src]} for week ${sl.week} aren't published yet.`)}
-      note=`${PW_SRC[src]}, week ${sl.week} (updated ${fmtTime(pub)}).`}
-    else if(src==="boone"){await ensureTV();note=`Justin Boone's week ${TV.data.week} trade values.`}
+      warns=res.map(r=>r.warn);note=`${PW_SRC[src]}, week ${sl.week} (updated ${fmtTime(pub)}).`}
+    else if(src==="boone"){await ensureTV();warns=valueWarns("boone");note=`Justin Boone's week ${TV.data.week} trade values.`}
     else if(src==="fc"){const fm={};for(const i of idx){const f=leagueFormat(sl.leagues[i]);fm[fcKey(f)]=f}
-      await Promise.all(Object.values(fm).map(f=>ensureFC(f)));note=`FantasyCalc values (updated ${fmtTime(Math.max(...Object.values(FC).map(x=>Date.parse(x.data.fetchedAt)||x.ts)))}).`}
+      await Promise.all(Object.values(fm).map(f=>ensureFC(f)));warns=valueWarns("fc");note=`FantasyCalc values (updated ${fmtTime(Math.max(...Object.values(FC).map(x=>Date.parse(x.data.fetchedAt)||x.ts)))}).`}
     else{const scs=[...new Set(idx.map(i=>leagueFormat(sl.leagues[i]).sc))];let pub=0;
       const res=await Promise.all(scs.map(sc=>rankLists("ecr","ros",sl.state.season,sl.week,sc)));
       scs.forEach((sc,j)=>{const t={};LISTS.forEach(([k],n)=>{const r=res[j][n];if((k==="QB"||k==="FLEX")&&r.ps&&r.ps.length){t[k]=parseList(listText(r.ps),k);pub=Math.max(pub,r.pub)}});if(Object.keys(t).length)fp[sc]=t});
       if(!Object.keys(fp).length){const e=res.flat().find(r=>r.err);throw e?e.err:new Error("FantasyPros rest-of-season rankings aren't available.")}
-      note=`FantasyPros rest-of-season rankings (updated ${fmtTime(pub)}).`}
+      warns=res.map(r=>r.warn);note=`FantasyPros rest-of-season rankings (updated ${fmtTime(pub)}).`}
     PW={user,ts:PW&&PW.sl===sl?PW.ts:Date.now(),sl,src,fp,users:PW&&PW.sl===sl?PW.users:{}};
     const last=store.get("pw_league");
     $("pw_league").innerHTML=idx.map(i=>`<option value="${i}">${esc(sl.leagues[i].name)}</option>`).join("");
     const keep=idx.find(i=>sl.leagues[i].league_id===last);if(keep!=null)$("pw_league").value=String(keep);
-    $("pw_ui").hidden=false;st.textContent=note;
+    $("pw_ui").hidden=false;
     await pwRender();
+    st.textContent=note;showWarn("pw_warn",warns);
   }catch(e){st.innerHTML=`<span class="err">${esc(e.message)}</span>`}
   $("pw_go").disabled=false;
 }

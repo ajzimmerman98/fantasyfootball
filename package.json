@@ -1,0 +1,13 @@
+{
+  "name": "boone-lineups",
+  "private": true,
+  "type": "module",
+  "description": "Tests for the Boone Lineups app (index.html) and its Cloudflare Worker (worker/).",
+  "scripts": {
+    "test": "node --test --test-concurrency=1 \"tests/*.test.mjs\""
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  },
+  "engines": { "node": ">=22.5" }
+}
