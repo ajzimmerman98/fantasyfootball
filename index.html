@@ -93,7 +93,7 @@ select.full{width:100%;height:44px}
 <h1>Boone Lineups</h1>
 <label for="user">Sleeper username</label>
 <input id="user" type="text" autocapitalize="none" autocorrect="off" autocomplete="username" placeholder="your_username">
-<details id="sync" class="sync"><summary>Sync &amp; saved lineups <span id="sync_state" class="r"></span></summary>
+<details id="sync" class="sync" hidden><summary>Sync &amp; saved lineups <span id="sync_state" class="r"></span></summary>
 <div id="sync_off"><label for="acode">Access code (set on your Cloudflare Worker)</label>
 <div class="loadrow" style="margin-top:0"><input id="acode" type="password" autocomplete="current-password" autocapitalize="none"><button id="acode_go" class="mini" style="width:auto;padding:0 16px">Connect</button></div></div>
 <div id="sync_on" hidden><span class="ok">Your username, settings and lineup builds are saved to your database.</span> <button class="link" id="acode_off">Disconnect this device</button>
@@ -647,7 +647,11 @@ async function me(path,opt={}){
 const settingsNow=()=>({rankSource:$("rsrc").value,faSource:$("fa_src").value,tvSource:$("tr_vsrc").value,pwSource:$("pw_src").value,doubt:$("doubt").checked,debug:$("debug").checked,espnLeagues:espnIds()});
 let profTimer=null;
 function saveProfile(){if(!synced())return;clearTimeout(profTimer);profTimer=setTimeout(()=>me("/profile",{method:"PUT",body:JSON.stringify({sleeperUsername:$("user").value.trim(),settings:settingsNow()})}).catch(()=>{}),800)}
-function syncUI(){const on=synced();$("sync_off").hidden=on;$("sync_on").hidden=!on;$("sync_state").textContent=on?"· connected":"";if(!on)$("saved").innerHTML=""}
+// Sync is for the owner only: shown on browsers connected with the access code, or marked once by opening the app with ?owner
+// (?owner=0 unmarks). It's only hidden from view; the data itself is protected by the access code.
+{const q=new URLSearchParams(location.search);if(q.has("owner"))store.set("owner_ui",q.get("owner")==="0"?"":"1")}
+const ownerUI=()=>!!(store.get("owner_ui")||store.get("acode"));
+function syncUI(){const on=synced();$("sync").hidden=!ownerUI();$("sync_off").hidden=on;$("sync_on").hidden=!on;$("sync_state").textContent=on?"· connected":"";if(!on)$("saved").innerHTML=""}
 async function connectSync(code){
   const msg=$("sync_msg");store.set("acode",code);msg.textContent="Connecting…";
   try{
