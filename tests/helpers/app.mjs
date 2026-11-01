@@ -19,10 +19,12 @@ let browser;
 export async function launch() { browser ||= await chromium.launch(); return browser; }
 export async function closeBrowser() { if (browser) await browser.close(); browser = null; }
 
-// opts: env (Worker bindings), width, query (e.g. "?owner"), connect (enter the access code)
-export async function openApp({ env = newEnv(), width = 375, query = "", connect = false } = {}) {
+// opts: env (Worker bindings), width, query (e.g. "?owner"), connect (enter the access code),
+// remembered (the username is already saved on this device, as on a return visit), sleeperCalls (array to record Sleeper paths)
+export async function openApp({ env = newEnv(), width = 375, query = "", connect = false, remembered = false, sleeperCalls = null } = {}) {
   const b = await launch();
   const ctx = await b.newContext({ viewport: { width, height: 900 } });
+  if (remembered) await ctx.addInitScript(() => { if (!localStorage.getItem("user")) localStorage.setItem("user", "aj"); });
   const page = await ctx.newPage();
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
@@ -34,6 +36,7 @@ export async function openApp({ env = newEnv(), width = 375, query = "", connect
   });
   await page.route("https://api.sleeper.app/**", (r) => {
     const u = new URL(r.request().url());
+    if (sleeperCalls) sleeperCalls.push(u.pathname);
     if (u.pathname.startsWith("/projections/nfl/")) return r.fulfill({ body: world.fixtures.projections, contentType: "application/json" });
     r.fulfill({ json: world.sleeper(u.pathname) });
   });
@@ -42,7 +45,7 @@ export async function openApp({ env = newEnv(), width = 375, query = "", connect
   await page.route("https://geocoding-api.open-meteo.com/**", (r) => r.fulfill({ json: { results: [] } }));
   await page.route("https://partners.fantasypros.com/**", (r) => r.abort()); // the app goes through the Worker
   await page.goto(APP + query);
-  await page.fill("#user", "aj");
+  if (!remembered) await page.fill("#user", "aj");
   if (connect) {
     await page.click("#sync summary");
     await page.fill("#acode", "s3cret");
