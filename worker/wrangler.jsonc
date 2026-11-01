@@ -5,5 +5,12 @@
   "name": "boone-api",
   "main": "src/index.js",
   "compatibility_date": "2026-09-01",
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  // D1 database for profile, saved lineups, and rankings/trade value history. Tables are created on first use.
+  "d1_databases": [
+    { "binding": "DB", "database_name": "boone-db", "database_id": "REPLACE_WITH_D1_DATABASE_ID" }
+  ],
+  // Every 3 hours: save new versions of Boone's rankings and trade value charts
+  "triggers": { "crons": ["17 */3 * * *"] }
+  // Secret (set in the dashboard, not here): ACCESS_CODE
 }
