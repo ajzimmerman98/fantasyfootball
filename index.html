@@ -48,7 +48,7 @@ select{padding:0 10px;border:1px solid var(--line);border-radius:12px;background
 .badge{font-size:12px;font-weight:600;border:1px solid currentColor;border-radius:999px;padding:1px 8px;white-space:nowrap}.b-ok{color:var(--good)}.b-exp{color:var(--warn)}.b-old{color:var(--muted)}
 small{color:var(--muted);display:block;margin-top:16px;font-size:12px}
 .tabs{display:flex;gap:4px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:4px;margin:12px 0 4px;position:sticky;top:env(safe-area-inset-top);z-index:5}
-.tabs button{flex:1 1 auto;width:auto;padding:9px 6px;font-size:14px;white-space:nowrap;letter-spacing:-.01em;border-radius:9px;background:none;color:var(--muted);font-weight:600}
+.tabs button{flex:1 1 auto;width:auto;padding:9px 4px;font-size:13.5px;white-space:nowrap;letter-spacing:-.01em;border-radius:9px;background:none;color:var(--muted);font-weight:600}
 .tabs button[aria-selected=true]{background:var(--accent);color:#fff}
 .panel[hidden]{display:none}
 .soon{color:var(--muted);font-size:15px}.soon ul{padding-left:20px;margin:8px 0 0}
@@ -76,6 +76,11 @@ select.full{width:100%;height:44px}
 .idea .side{margin:2px 0}.idea .side .lbl{display:inline-block;width:68px;color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase}
 .fa{display:grid;grid-template-columns:52px 1fr auto;gap:6px;padding:7px 0;border-top:1px solid var(--line);font-size:15px;align-items:baseline}
 .fa:first-of-type{border-top:0}.fa .m{color:var(--muted);font-size:12px}.fa .up{color:var(--good);font-size:13px;font-weight:600}.fa .bnch{color:var(--accent);font-size:13px}
+.pw{background:var(--card);border:1px solid var(--line);border-radius:14px;margin:8px 0;font-size:14px}.pw.me{border-color:var(--accent)}
+.pw summary{list-style:none;cursor:pointer;padding:10px 12px;display:grid;grid-template-columns:28px 1fr auto;gap:8px;align-items:center}.pw summary::-webkit-details-marker{display:none}
+.pw .rk{font-size:18px;font-weight:700;color:var(--muted);text-align:center}.pw .nm{font-weight:600}.pw .sub{color:var(--muted);font-size:12px;font-weight:400}
+.pw .tot{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums}.pw .bar{grid-column:2/4;height:4px;border-radius:2px;background:var(--line);overflow:hidden}.pw .bar i{display:block;height:100%;background:var(--accent)}
+.pw .body{padding:0 12px 10px}.pw .body h3{font-size:12px;color:var(--muted);margin:8px 0 2px;text-transform:uppercase;letter-spacing:.03em}.pw .pl2{display:flex;justify-content:space-between;padding:2px 0;border-top:1px solid var(--line)}
 .idea .meta{color:var(--muted);font-size:13px;margin-top:6px}.idea .meta .up{color:var(--good);font-weight:600}.idea .meta .down{color:var(--warn);font-weight:600}.idea button{margin-top:8px;padding:9px;font-size:15px}
 </style>
 </head>
@@ -95,6 +100,7 @@ select.full{width:100%;height:44px}
 <button role="tab" id="tb_fa" data-tab="fa" aria-controls="p_fa">Free Agents</button>
 <button role="tab" id="tb_weather" data-tab="weather" aria-controls="p_weather">Weather</button>
 <button role="tab" id="tb_trade" data-tab="trade" aria-controls="p_trade">Trades</button>
+<button role="tab" id="tb_power" data-tab="power" aria-controls="p_power">Power</button>
 </nav>
 <section class="panel" id="p_lineup" role="tabpanel" aria-labelledby="tb_lineup">
 <label>Rankings</label>
@@ -110,7 +116,7 @@ select.full{width:100%;height:44px}
 </section>
 <section class="panel" id="p_fa" role="tabpanel" aria-labelledby="tb_fa" hidden>
 <label for="fa_src">Rank free agents by</label>
-<select id="fa_src" class="full"><optgroup label="This week"><option value="boone:week">Justin Boone · this week</option><option value="ecr:week">FantasyPros · this week</option><option value="sleeper:week">Sleeper projections · this week</option></optgroup><optgroup label="Rest of season"><option value="tvboone:ros">Justin Boone trade values · rest of season</option><option value="tvfc:ros">FantasyCalc trade values · rest of season</option><option value="ecr:ros">FantasyPros · rest of season</option></optgroup></select>
+<select id="fa_src" class="full"><optgroup label="This week"><option value="boone:week">Justin Boone</option><option value="ecr:week">FantasyPros</option><option value="sleeper:week">Sleeper projections</option></optgroup><optgroup label="Rest of season"><option value="tvboone:ros">Justin Boone trade values</option><option value="tvfc:ros">FantasyCalc trade values</option><option value="ecr:ros">FantasyPros rankings</option></optgroup></select>
 <div class="loadrow"><button id="fa_go">Find free agents</button></div>
 <div id="fa_status" class="status"></div>
 <div id="fa_ui" hidden>
@@ -134,6 +140,14 @@ select.full{width:100%;height:44px}
 <div id="tr_sum" class="tsum"></div>
 </div>
 <small id="tr_src">Boone's values come from Justin Boone's rest-of-season trade value charts on Yahoo. FantasyCalc's come from real fantasy trades, rescaled so its top player is 100 (close to Boone's scale). Each league uses its own format: PPR, half-PPR or standard, 1QB or superflex, and (for FantasyCalc) its number of teams. The same choice sets the TV numbers on the Lineup tab.</small>
+</section>
+<section class="panel" id="p_power" role="tabpanel" aria-labelledby="tb_power" hidden>
+<label for="pw_src">Rank teams by (rest of season)</label>
+<select id="pw_src" class="full"><option value="boone">Justin Boone trade values</option><option value="ecr">FantasyPros rankings</option><option value="fc">FantasyCalc trade values</option></select>
+<div class="loadrow"><button id="pw_go">Rank teams</button></div>
+<div id="pw_status" class="status"></div>
+<div id="pw_ui" hidden><select id="pw_league" class="full" aria-label="League"></select><div id="pw_out"></div></div>
+<small>Score = starting lineup + depth. Starting lineup is the best lineup each roster can field (QB, RB, WR, TE and flex spots) at full value. Depth adds the six best bench players at 35%, 30%, 25%, 20%, 15% and 10% of their value. IR and taxi players don't count; kickers and defenses aren't valued. FantasyPros ranks are turned into values on a curve (#1 = 100; QBs scaled lower in 1QB leagues) so they can be added up. Each league uses its own format.</small>
 </section>
 <section class="panel" id="p_weather" role="tabpanel" aria-labelledby="tb_weather" hidden>
 <div class="row"><input id="w_starters" type="checkbox" checked><label for="w_starters" style="margin:0;color:var(--text)">Starters only</label></div>
@@ -543,8 +557,9 @@ $("tr_team").onchange=()=>{TR.get.clear();trRender()};
 
 // ---------- Trade idea generator ----------
 // Lineup strength = sum of trade values of the best starting lineup (K/DEF have no values, so they're skipped).
-function lineupStrength(ids,slots,val,pos){
-  const pool=ids.filter(id=>val[id]>0).sort((a,b)=>val[b]-val[a]),used=new Set();let total=0;
+const activeIds=r=>{const out=new Set([...(r.reserve||[]),...(r.taxi||[])]);return(r.players||[]).filter(id=>!out.has(id))};
+function lineupStrength(ids,slots,val,pos,used=new Set()){
+  const pool=ids.filter(id=>val[id]>0).sort((a,b)=>val[b]-val[a]);let total=0;
   const take=ok=>{for(const id of pool)if(!used.has(id)&&ok(pos[id])){used.add(id);total+=val[id];return}};
   for(const s of slots)if(["QB","RB","WR","TE"].includes(s))take(p=>p===s);
   for(const st of FLEX_ORDER)for(const s of slots)if(s===st)take(p=>FLEX[s].includes(p));
@@ -553,7 +568,7 @@ function lineupStrength(ids,slots,val,pos){
 const pairs=a=>{const r=[];for(let i=0;i<a.length;i++){r.push([a[i]]);for(let j=i+1;j<a.length;j++)r.push([a[i],a[j]])}return r};
 function generateTrades(i,scope){
   const {sl}=TR,lg=sl.leagues[i],fmt=leagueFormat(lg),slots=(lg.roster_positions||[]).filter(s=>!NON.has(s)&&s!=="K"&&s!=="DEF");
-  const active=r=>{const out=new Set([...(r.reserve||[]),...(r.taxi||[])]);return(r.players||[]).filter(id=>!out.has(id))};
+  const active=activeIds;
   const val={},pos={};
   for(const r of sl.rosters[i])for(const id of r.players||[]){const p=sl.players[id];if(!p)continue;pos[id]=p.p;val[id]=tradeValue(p,fmt,id)??0}
   const me=sl.mineAll[i],mine=active(me),base=lineupStrength(mine,slots,val,pos);
@@ -618,7 +633,7 @@ async function me(path,opt={}){
   if(!r.ok)throw new Error(d.error||`Sync error ${r.status}`);
   return d;
 }
-const settingsNow=()=>({scoringMode:$("scoring").value,rankSource:$("rsrc").value,faSource:$("fa_src").value,tvSource:$("tr_vsrc").value,doubt:$("doubt").checked,debug:$("debug").checked,espnLeagues:espnIds()});
+const settingsNow=()=>({scoringMode:$("scoring").value,rankSource:$("rsrc").value,faSource:$("fa_src").value,tvSource:$("tr_vsrc").value,pwSource:$("pw_src").value,doubt:$("doubt").checked,debug:$("debug").checked,espnLeagues:espnIds()});
 let profTimer=null;
 function saveProfile(){if(!synced())return;clearTimeout(profTimer);profTimer=setTimeout(()=>me("/profile",{method:"PUT",body:JSON.stringify({sleeperUsername:$("user").value.trim(),settings:settingsNow()})}).catch(()=>{}),800)}
 function syncUI(){const on=synced();$("sync_off").hidden=on;$("sync_on").hidden=!on;$("sync_state").textContent=on?"· connected":"";if(!on)$("saved").innerHTML=""}
@@ -630,7 +645,7 @@ async function connectSync(code){
     if(p.sleeperUsername&&!$("user").value.trim()){$("user").value=p.sleeperUsername;store.set("user",p.sleeperUsername)}
     const st=p.settings||{};
     if(!p.updatedAt)saveProfile();
-    else{if(SCORING_MODES.includes(st.scoringMode))($("scoring").value=st.scoringMode,store.set("scoring_mode",st.scoringMode));if(SRC_NAME[st.rankSource])($("rsrc").value=st.rankSource,store.set("rsrc",st.rankSource));if(TV_SRC[st.tvSource])($("tr_vsrc").value=st.tvSource,store.set("tv_src",st.tvSource));if(st.faSource&&$("fa_src").querySelector(`option[value="${st.faSource}"]`))($("fa_src").value=st.faSource,store.set("fa_src",st.faSource));if(typeof st.doubt==="boolean")$("doubt").checked=st.doubt;if(typeof st.debug==="boolean")$("debug").checked=st.debug;if(Array.isArray(st.espnLeagues)){store.set("espn_leagues",st.espnLeagues.join(", "));$("espn_ids").value=store.get("espn_leagues")}}
+    else{if(SCORING_MODES.includes(st.scoringMode))($("scoring").value=st.scoringMode,store.set("scoring_mode",st.scoringMode));if(SRC_NAME[st.rankSource])($("rsrc").value=st.rankSource,store.set("rsrc",st.rankSource));if(PW_SRC[st.pwSource])($("pw_src").value=st.pwSource,store.set("pw_src",st.pwSource));if(TV_SRC[st.tvSource])($("tr_vsrc").value=st.tvSource,store.set("tv_src",st.tvSource));if(st.faSource&&$("fa_src").querySelector(`option[value="${st.faSource}"]`))($("fa_src").value=st.faSource,store.set("fa_src",st.faSource));if(typeof st.doubt==="boolean")$("doubt").checked=st.doubt;if(typeof st.debug==="boolean")$("debug").checked=st.debug;if(Array.isArray(st.espnLeagues)){store.set("espn_leagues",st.espnLeagues.join(", "));$("espn_ids").value=store.get("espn_leagues")}}
     msg.textContent="";syncUI();await loadSaved();
   }catch(e){store.set("acode","");syncUI();msg.innerHTML=`<span class="err">${esc(e.message)}</span>`}
 }
@@ -994,7 +1009,79 @@ const SCORING_MODES=["AUTO","PPR","HALF"];
 $("scoring").value=SCORING_MODES.includes(store.get("scoring_mode"))?store.get("scoring_mode"):"AUTO";
 $("scoring").onchange=()=>{store.set("scoring_mode",$("scoring").value);saveProfile()};
 $("user").value=store.get("user")||"";syncUI();sleeperWeek().catch(()=>{}).then(()=>{if(synced())loadSaved()});$("doubt").checked=store.get("doubt")==="1";$("debug").checked=store.get("debug")==="1";
-const TABS=["lineup","fa","weather","trade"];
+// ---------- Power rankings tab ----------
+// Score = best starting lineup (full value) + depth (best bench players at decreasing weights), rest-of-season values.
+const PW_DEPTH=[0.35,0.3,0.25,0.2,0.15,0.1];
+const PW_SRC={boone:"Justin Boone trade values",ecr:"FantasyPros rest-of-season rankings",fc:"FantasyCalc trade values"};
+// FantasyPros gives ranks, not values: #1 = 100, falling ~1.5% per FLEX rank; QBs on their own curve (lower in 1QB leagues)
+const fpCurve=(r,qb,sf)=>qb?(sf?100:40)*Math.pow(0.95,r-1):100*Math.pow(0.985,r-1);
+let PW=null;
+async function pwRun(){
+  const user=$("user").value.trim(),st=$("pw_status"),src=$("pw_src").value;store.set("user",user);
+  if(!user){st.textContent="Enter your Sleeper username.";return}
+  $("pw_go").disabled=true;
+  try{
+    const sl=PW&&PW.user===user&&Date.now()-PW.ts<10*60e3?PW.sl:await loadSleeper(user,false,st);
+    const idx=sl.leagues.map((lg,i)=>sl.mineAll[i]?i:-1).filter(i=>i>=0);
+    if(!idx.length)throw new Error("No leagues with your roster found.");
+    st.textContent=`Loading ${PW_SRC[src]}…`;
+    const fp={};let note="";
+    if(src==="boone"){await ensureTV();note=`Justin Boone's week ${TV.data.week} trade values.`}
+    else if(src==="fc"){const fm={};for(const i of idx){const f=leagueFormat(sl.leagues[i]);fm[fcKey(f)]=f}
+      await Promise.all(Object.values(fm).map(f=>ensureFC(f)));note=`FantasyCalc values (updated ${fmtTime(Math.max(...Object.values(FC).map(x=>Date.parse(x.data.fetchedAt)||x.ts)))}).`}
+    else{const scs=[...new Set(idx.map(i=>leagueFormat(sl.leagues[i]).sc))];let pub=0;
+      const res=await Promise.all(scs.map(sc=>rankLists("ecr","ros",sl.state.season,sl.week,sc)));
+      scs.forEach((sc,j)=>{const t={};LISTS.forEach(([k],n)=>{const r=res[j][n];if((k==="QB"||k==="FLEX")&&r.ps&&r.ps.length){t[k]=parseList(listText(r.ps),k);pub=Math.max(pub,r.pub)}});if(Object.keys(t).length)fp[sc]=t});
+      if(!Object.keys(fp).length){const e=res.flat().find(r=>r.err);throw e?e.err:new Error("FantasyPros rest-of-season rankings aren't available.")}
+      note=`FantasyPros rest-of-season rankings (updated ${fmtTime(pub)}).`}
+    PW={user,ts:PW&&PW.sl===sl?PW.ts:Date.now(),sl,src,fp,users:PW&&PW.sl===sl?PW.users:{}};
+    const last=store.get("pw_league");
+    $("pw_league").innerHTML=idx.map(i=>`<option value="${i}">${esc(sl.leagues[i].name)}</option>`).join("");
+    const keep=idx.find(i=>sl.leagues[i].league_id===last);if(keep!=null)$("pw_league").value=String(keep);
+    $("pw_ui").hidden=false;st.textContent=note;
+    await pwRender();
+  }catch(e){st.innerHTML=`<span class="err">${esc(e.message)}</span>`}
+  $("pw_go").disabled=false;
+}
+function pwValuer(lg){
+  const f=leagueFormat(lg);
+  if(PW.src==="boone")return(p)=>tvBoone(p,f);
+  if(PW.src==="fc")return(p,id)=>tvFC(p,f,id);
+  const t=PW.fp[f.sc]||{};
+  return p=>{if(!p)return null;
+    if(p.p==="QB"){const r=t.QB?lookup(t.QB,p):null;return r==null?null:Math.round(fpCurve(r,true,f.qb==="2QB"))}
+    if(["RB","WR","TE"].includes(p.p)){const r=t.FLEX?lookup(t.FLEX,p):null;return r==null?null:Math.round(fpCurve(r))}
+    return null};
+}
+function pwScores(i){
+  const {sl}=PW,lg=sl.leagues[i],v=pwValuer(lg),slots=(lg.roster_positions||[]).filter(s=>!NON.has(s)&&s!=="K"&&s!=="DEF");
+  const val={},pos={};
+  for(const r of sl.rosters[i])for(const id of r.players||[]){const p=sl.players[id];if(!p)continue;pos[id]=p.p;val[id]=v(p,id)??0}
+  return sl.rosters[i].map(r=>{
+    const ids=activeIds(r),used=new Set(),starters=lineupStrength(ids,slots,val,pos,used);
+    const bench=ids.filter(id=>!used.has(id)&&val[id]>0).sort((a,b)=>val[b]-val[a]);
+    const depth=bench.slice(0,PW_DEPTH.length).reduce((t,id,k)=>t+val[id]*PW_DEPTH[k],0);
+    return{r,starters,depth:Math.round(depth),total:Math.round(starters+depth),lineup:[...used],bench:bench.slice(0,PW_DEPTH.length),val};
+  }).sort((a,b)=>b.total-a.total);
+}
+async function pwRender(){
+  if(!PW)return;
+  const i=+$("pw_league").value,{sl}=PW,lg=sl.leagues[i];store.set("pw_league",lg.league_id);
+  if(!PW.users[lg.league_id])PW.users[lg.league_id]=lg.provider==="espn"?Object.entries(lg._names).map(([user_id,display_name])=>({user_id,display_name})):await api(`/league/${lg.league_id}/users`).catch(()=>[]);
+  const names=Object.fromEntries(PW.users[lg.league_id].map(u=>[u.user_id,u.metadata?.team_name||u.display_name||"Team"]));
+  const rows=pwScores(i),top=rows[0]?.total||1,f=leagueFormat(lg);
+  const nm=(id,val)=>{const p=sl.players[id];return`<div class="pl2"><span>${esc(p?.n||`${p?.f||""} ${p?.l||""}`)} <span class="r">${esc(p?.p||"")} ${esc(p?.t||"")}</span></span><b class="tv">${val[id]}</b></div>`};
+  $("pw_out").innerHTML=`<div class="ok" style="margin:10px 0 4px">${esc(PW_SRC[PW.src])} · ${esc(fmtLabel(f))}${PW.src==="fc"?` · ${f.teams} teams`:""}. Tap a team for its lineup.</div>`+
+    rows.map((x,k)=>{const mine=x.r.owner_id===sl.userId,who=names[x.r.owner_id]||`Team ${x.r.roster_id}`;
+      const order=x.lineup.slice().sort((a,b)=>x.val[b]-x.val[a]);
+      return`<details class="pw${mine?" me":""}"><summary><span class="rk">${k+1}</span><span class="nm">${esc(who)}${mine?' <span class="badge b-ok">You</span>':""}<div class="sub">Starters ${x.starters} · Depth ${x.depth}</div></span><span class="tot">${x.total}</span><span class="bar"><i style="width:${Math.max(2,Math.round(100*x.total/top))}%"></i></span></summary>`+
+        `<div class="body"><h3>Starting lineup</h3>${order.map(id=>nm(id,x.val)).join("")||'<div class="ok">No valued players.</div>'}<h3>Depth</h3>${x.bench.map(id=>nm(id,x.val)).join("")||'<div class="ok">No valued bench players.</div>'}</div></details>`}).join("");
+}
+$("pw_src").value=PW_SRC[store.get("pw_src")]?store.get("pw_src"):"boone";
+$("pw_go").onclick=pwRun;$("pw_league").onchange=()=>pwRender().catch(e=>$("pw_status").innerHTML=`<span class="err">${esc(e.message)}</span>`);
+$("pw_src").onchange=()=>{store.set("pw_src",$("pw_src").value);saveProfile();if(PW)pwRun()};
+
+const TABS=["lineup","fa","weather","trade","power"];
 function showTab(t){if(!TABS.includes(t))t="lineup";
   for(const k of TABS){$("p_"+k).hidden=k!==t;$("tb_"+k).setAttribute("aria-selected",String(k===t))}
   store.set("tab",t);if(location.hash!=="#"+t)history.replaceState(null,"","#"+t);
