@@ -9,7 +9,7 @@ Public (Boone's published data):
 | Endpoint | What it returns |
 |---|---|
 | `GET /trade-values` | Boone's latest rest-of-season trade value charts (QB, RB, WR, TE) from his weekly Yahoo articles. `?refresh` skips the 1-hour cache. |
-| `GET /rankings?season&week&scoring` | Boone's QB, FLEX, K and DEF lists from FantasyPros (`scoring` = `PPR` or `HALF`; defaults to Sleeper's current week). Saves each new version; serves the newest saved copy if FantasyPros is down. |
+| `GET /rankings?season&week&scoring&source&kind` | QB, FLEX, K and DEF lists from FantasyPros (`scoring` = `PPR` or `HALF`; defaults to Sleeper's current week). `source` = `boone` (default, Justin Boone) or `ecr` (FantasyPros expert consensus); `kind` = `week` (default) or `ros` (rest of season, consensus only). Boone's weekly lists keep every version; other lists keep the newest copy. Serves the newest saved copy if FantasyPros is down. |
 | `GET /rankings/status?season&week` | `{ latestPub }`: when Boone last published or updated that week's rankings. |
 | `GET /health` | `{ ok, db, accessCode }`: whether the database and access code are set up. |
 
@@ -23,11 +23,11 @@ Private (send `Authorization: Bearer <ACCESS_CODE>`):
 | `DELETE /me/builds/:id` | Delete one build. |
 | `GET /me/espn?season` | Your ESPN leagues (IDs saved in profile `settings.espnLeagues`), converted to the app's Sleeper-style league shape: slots, scoring, every team's roster and current lineup. |
 
-A cron trigger runs every 3 hours and saves new versions of Boone's rankings (PPR and half-PPR) and the week's trade value charts, so "expired" works even when the app isn't open.
+A cron trigger runs every 3 hours and saves new versions of Boone's and the consensus weekly rankings (PPR and half-PPR) and the week's trade value charts, so "expired" works even when the app isn't open.
 
 ## Database
 
-D1 database `boone-db`, bound as `DB`. Tables are created automatically on first use (`src/db.js`): `profile`, `rankings`, `trade_values`, `lineup_builds`.
+D1 database `boone-db`, bound as `DB`. Tables are created automatically on first use (`src/db.js`): `profile`, `rankings` (Boone history), `rankings_latest` (newest consensus and rest-of-season lists), `trade_values`, `lineup_builds`.
 
 ## Setup
 

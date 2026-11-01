@@ -2,7 +2,9 @@
 //
 // Public (Boone's published data):
 //   GET  /trade-values                      Boone's latest trade value charts (?refresh skips the 1-hour cache)
-//   GET  /rankings?season&week&scoring      Boone's QB, FLEX, K, DEF lists (scoring = PPR | HALF; defaults to Sleeper's current week)
+//   GET  /rankings?season&week&scoring&source&kind
+//                                           QB, FLEX, K, DEF lists (scoring = PPR | HALF; defaults to Sleeper's current week).
+//                                           source = boone (default) | ecr (FantasyPros consensus); kind = week (default) | ros (consensus only)
 //   GET  /rankings/status?season&week       Newest publish time of Boone's rankings for that week
 //   GET  /health
 // Private (header "Authorization: Bearer <ACCESS_CODE>"):
@@ -11,12 +13,12 @@
 //   POST /me/builds                         Save builds: { builds: [...] }
 //   DELETE /me/builds/:id
 //   GET  /me/espn?season                    Your ESPN leagues (ids from profile settings.espnLeagues), in the app's league shape
-// Scheduled every 3 hours: save new versions of Boone's rankings and the week's trade value charts.
+// Scheduled every 3 hours: save new versions of Boone's and the consensus weekly rankings, and the week's trade value charts.
 //
 // Bindings: DB (D1). Secrets: ACCESS_CODE; ESPN_S2 and ESPN_SWID (ESPN login cookies, for private leagues).
 
 import { loadTradeValues } from "./tradevalues.js";
-import { fetchList, sleeperWeek, appLists } from "./rankings.js";
+import { fetchList, sleeperWeek, appLists, SOURCES, KINDS } from "./rankings.js";
 import * as store from "./db.js";
 import { fetchLeague } from "./espn.js";
 
@@ -53,24 +55,33 @@ async function weekParams(url) {
   return sleeperWeek();
 }
 
-// Live from FantasyPros, saving new versions; falls back to the newest saved copy if FantasyPros fails
-async function rankings(env, season, week, scoring) {
+// Live from FantasyPros, saving new versions; falls back to the newest saved copy if FantasyPros fails.
+// Boone's weekly lists keep every version (for "expired"); other lists keep only the newest copy.
+async function save(db, season, week, l) {
+  return l.source === "boone" && l.kind === "week" ? store.saveRankings(db, season, week, l) : store.saveLatest(db, season, l.kind === "ros" ? 0 : week, l);
+}
+async function saved(db, season, week, key, source, kind) {
+  if (source === "boone" && kind === "week") return (await store.latestRankings(db, season, week, [key]))[key] || null;
+  return store.getLatest(db, source, kind, season, kind === "ros" ? 0 : week, key);
+}
+async function rankings(env, season, week, scoring, source = "boone", kind = "week") {
+  if (source === "boone" && kind !== "week") throw new HttpError(400, "Boone only has weekly rankings. Use source=ecr for rest of season.");
   const map = appLists(scoring), db = env.DB;
   if (db) await store.ensureSchema(db);
   const lists = {}, errors = [];
   await Promise.all(Object.entries(map).map(async ([appKey, key]) => {
     try {
-      const l = await fetchList(season, week, key);
+      const l = await fetchList(season, week, key, source, kind);
       lists[appKey] = { pub: l.pub, players: l.players, source: "live" };
-      if (db) await store.saveRankings(db, season, week, l);
+      if (db) await save(db, season, week, l);
     } catch (e) {
       if (/not Boone/.test(e.message)) throw new HttpError(409, e.message);
       errors.push(`${appKey}: ${e.message}`);
-      const saved = db ? (await store.latestRankings(db, season, week, [key]))[key] : null;
-      if (saved) lists[appKey] = { pub: saved.pub, players: saved.players, source: "saved" };
+      const s = db ? await saved(db, season, week, key, source, kind) : null;
+      if (s) lists[appKey] = { pub: s.pub, players: s.players, source: "saved" };
     }
   }));
-  return { season, week, scoring, lists, errors };
+  return { season, week, scoring, rankSource: source, kind, lists, errors };
 }
 
 function authorize(request, env) {
@@ -96,7 +107,9 @@ async function handle(request, env) {
   if (path === "/trade-values" && m === "GET") return json(await tradeValues(env, url.searchParams.has("refresh")), 200, "public, max-age=300");
   if (path === "/rankings" && m === "GET") {
     const { season, week } = await weekParams(url), scoring = url.searchParams.get("scoring") === "HALF" ? "HALF" : "PPR";
-    return json(await rankings(env, season, week, scoring));
+    const source = url.searchParams.get("source") || "boone", kind = url.searchParams.get("kind") || "week";
+    if (!SOURCES.includes(source) || !KINDS.includes(kind)) throw new HttpError(400, `source must be one of ${SOURCES.join(", ")}; kind one of ${KINDS.join(", ")}`);
+    return json(await rankings(env, season, week, scoring, source, kind));
   }
   if (path === "/rankings/status" && m === "GET") {
     const { season, week } = await weekParams(url);
@@ -148,9 +161,9 @@ export async function scheduled(env) {
   await store.ensureSchema(env.DB);
   try {
     const { season, week } = await sleeperWeek();
-    for (const key of ["QB", "FLEX:PPR", "FLEX:HALF", "K", "DEF"]) {
-      try { out.rankings[key] = await store.saveRankings(env.DB, season, week, await fetchList(season, week, key)); }
-      catch (e) { out.errors.push(`${key}: ${e.message}`); }
+    for (const source of SOURCES) for (const key of ["QB", "FLEX:PPR", "FLEX:HALF", "K", "DEF"]) {
+      try { out.rankings[`${source}:${key}`] = await save(env.DB, season, week, await fetchList(season, week, key, source)); }
+      catch (e) { out.errors.push(`${source} ${key}: ${e.message}`); }
     }
   } catch (e) { out.errors.push(`week: ${e.message}`); }
   try { const d = await tradeValues(env, true); out.tradeValues = d.week; } catch (e) { out.errors.push(`trade values: ${e.message}`); }

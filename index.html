@@ -75,6 +75,8 @@ select.full{width:100%;height:44px}
 .idea{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 14px;margin:10px 0;font-size:14px}
 .idea h3{font-size:15px;margin:0 0 6px;display:flex;justify-content:space-between;gap:8px}.idea h3 span{color:var(--good);white-space:nowrap}
 .idea .side{margin:2px 0}.idea .side .lbl{display:inline-block;width:68px;color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase}
+.fa{display:grid;grid-template-columns:52px 1fr auto;gap:6px;padding:7px 0;border-top:1px solid var(--line);font-size:15px;align-items:baseline}
+.fa:first-of-type{border-top:0}.fa .m{color:var(--muted);font-size:12px}.fa .up{color:var(--good);font-size:13px;font-weight:600}.fa .bnch{color:var(--accent);font-size:13px}
 .idea .meta{color:var(--muted);font-size:13px;margin-top:6px}.idea .meta .up{color:var(--good);font-weight:600}.idea .meta .down{color:var(--warn);font-weight:600}.idea button{margin-top:8px;padding:9px;font-size:15px}
 </style>
 </head>
@@ -96,9 +98,9 @@ select.full{width:100%;height:44px}
 <button role="tab" id="tb_trade" data-tab="trade" aria-controls="p_trade">Trades</button>
 </nav>
 <section class="panel" id="p_lineup" role="tabpanel" aria-labelledby="tb_lineup">
-<div class="loadrow"><button id="loadB">Load Boone's rankings</button><select id="scoring" aria-label="Scoring"><option value="PPR">PPR</option><option value="HALF">Half-PPR</option></select></div>
+<div class="loadrow"><button id="loadB">Load rankings</button><select id="rsrc" aria-label="Rankings source"><option value="boone">Boone</option><option value="ecr">Consensus</option></select><select id="scoring" aria-label="Scoring"><option value="PPR">PPR</option><option value="HALF">Half-PPR</option></select></div>
 <div id="bnote" class="bnote" hidden></div>
-<label>Rankings lists (filled by Load, or paste from Boone's article)</label>
+<label>Rankings lists (filled by Load, or paste from Boone's article). Consensus = the FantasyPros average of all its experts.</label>
 <div id="boxes"></div>
 <button class="link" id="newweek">Clear all lists (new week)</button>
 <div class="row"><input id="doubt" type="checkbox"><label for="doubt" style="margin:0;color:var(--text)">Allow Doubtful players</label></div>
@@ -111,8 +113,15 @@ select.full{width:100%;height:44px}
 <small>Sleeper's API is read-only, so make the swaps in the Sleeper app. Unranked players are usually on bye. TV = Boone's rest-of-season trade value for that league's format.</small>
 </section>
 <section class="panel" id="p_fa" role="tabpanel" aria-labelledby="tb_fa" hidden>
-<div class="card soon"><h2>Free Agents</h2>Coming soon: best available free agents in each of your leagues, from FantasyPros rankings.
-<ul><li>This week and rest of season</li><li>Filter by league and position</li><li>Highlights players ranked above your weakest starter</li></ul></div>
+<label for="fa_src">Rank free agents by</label>
+<select id="fa_src" class="full"><option value="boone:week">Boone · this week</option><option value="ecr:week">Consensus · this week</option><option value="ecr:ros">Consensus · rest of season</option></select>
+<div class="loadrow"><button id="fa_go">Find free agents</button></div>
+<div id="fa_status" class="status"></div>
+<div id="fa_ui" hidden>
+<div class="loadrow" style="margin-top:4px"><select id="fa_league" class="full" style="flex:1;min-width:0" aria-label="League"></select><select id="fa_pos" style="height:44px" aria-label="Position"><option value="ALL">All</option><option>QB</option><option>RB</option><option>WR</option><option>TE</option><option>K</option><option>DEF</option></select></div>
+<div id="fa_out"></div>
+</div>
+<small>Free agents are players on no roster in that league (waiver players included). Consensus is the FantasyPros average of all its experts. Rostered % is the share of Yahoo, ESPN and other leagues he's on, from FantasyPros; adds are Sleeper adds in the last 24 hours. Each league uses its own scoring (standard-scoring leagues use half-PPR lists).</small>
 </section>
 <section class="panel" id="p_trade" role="tabpanel" aria-labelledby="tb_trade" hidden>
 <button id="tr_go">Load leagues &amp; trade values</button>
@@ -203,7 +212,7 @@ function updCount(k,stamp){
   if(stamp){store.set("ts_"+k,v.trim()?String(Date.now()):"");store.set("src_"+k,"")}
   const ts=+store.get("ts_"+k)||0,el=$("c_"+k),src=getSrc(k),cw=+store.get("cur_week")||0;
   if(n&&src){
-    el.textContent=`${n} players · Boone week ${src.week}${k==="FLEX"?" "+(src.scoring==="HALF"?"half-PPR":"PPR"):""} · updated ${fmtTime(src.pub)}`;
+    el.textContent=`${n} players · ${SRC_NAME[src.source||"boone"]} week ${src.week}${k==="FLEX"?" "+(src.scoring==="HALF"?"half-PPR":"PPR"):""} · updated ${fmtTime(src.pub)}`;
     el.classList.add("src");el.classList.toggle("stale",!!cw&&src.week<cw);
   }else{
     el.textContent=n?`${n} players${ts?" · "+ago(ts):""}`:"";
@@ -310,7 +319,7 @@ function render(lg,roster,cur,players,ranks,opts){
   const starts=[...nw].filter(i=>!old.has(i)).map(i=>byId[i]).sort(byName);
   const sits=[...old].filter(i=>!nw.has(i)).map(i=>byId[i]||{name:players[i]?.n||`Unknown player (${i})`}).sort(byName);
   h+=`<div class="swaps">`;
-  if(!starts.length&&!sits.length)h+=`<div class="ok">No changes. Your lineup already matches Boone.</div>`;
+  if(!starts.length&&!sits.length)h+=`<div class="ok">No changes. Your lineup already matches the rankings.</div>`;
   else{starts.forEach(c=>h+=`<div><span class="start">START</span> ${esc(c.name)}${esc(tg(c))}</div>`);sits.forEach(c=>h+=`<div><span class="sit">SIT</span> ${esc(c.name)}${esc(tg(c))}</div>`)}
   h+=`</div>`;
   const bench=cands.filter(c=>!nw.has(c.id)).sort((a,b)=>a.rp===b.rp?a.name.localeCompare(b.name):a.rp<b.rp?-1:1);
@@ -557,7 +566,7 @@ async function me(path,opt={}){
   if(!r.ok)throw new Error(d.error||`Sync error ${r.status}`);
   return d;
 }
-const settingsNow=()=>({scoring:$("scoring").value,doubt:$("doubt").checked,debug:$("debug").checked,espnLeagues:espnIds()});
+const settingsNow=()=>({scoring:$("scoring").value,rankSource:$("rsrc").value,faSource:$("fa_src").value,doubt:$("doubt").checked,debug:$("debug").checked,espnLeagues:espnIds()});
 let profTimer=null;
 function saveProfile(){if(!synced())return;clearTimeout(profTimer);profTimer=setTimeout(()=>me("/profile",{method:"PUT",body:JSON.stringify({sleeperUsername:$("user").value.trim(),settings:settingsNow()})}).catch(()=>{}),800)}
 function syncUI(){const on=synced();$("sync_off").hidden=on;$("sync_on").hidden=!on;$("sync_state").textContent=on?"· connected":"";if(!on)$("saved").innerHTML=""}
@@ -569,23 +578,25 @@ async function connectSync(code){
     if(p.sleeperUsername&&!$("user").value.trim()){$("user").value=p.sleeperUsername;store.set("user",p.sleeperUsername)}
     const st=p.settings||{};
     if(!p.updatedAt)saveProfile();
-    else{if(st.scoring)($("scoring").value=st.scoring,store.set("scoring",st.scoring));if(typeof st.doubt==="boolean")$("doubt").checked=st.doubt;if(typeof st.debug==="boolean")$("debug").checked=st.debug;if(Array.isArray(st.espnLeagues)){store.set("espn_leagues",st.espnLeagues.join(", "));$("espn_ids").value=store.get("espn_leagues")}}
+    else{if(st.scoring)($("scoring").value=st.scoring,store.set("scoring",st.scoring));if(SRC_NAME[st.rankSource])($("rsrc").value=st.rankSource,store.set("rsrc",st.rankSource));if(st.faSource&&$("fa_src").querySelector(`option[value="${st.faSource}"]`))($("fa_src").value=st.faSource,store.set("fa_src",st.faSource));if(typeof st.doubt==="boolean")$("doubt").checked=st.doubt;if(typeof st.debug==="boolean")$("debug").checked=st.debug;if(Array.isArray(st.espnLeagues)){store.set("espn_leagues",st.espnLeagues.join(", "));$("espn_ids").value=store.get("espn_leagues")}}
     msg.textContent="";syncUI();await loadSaved();
   }catch(e){store.set("acode","");syncUI();msg.innerHTML=`<span class="err">${esc(e.message)}</span>`}
 }
 async function saveBuilds(season,week,collected){
   if(!collected.length)return;
   const src=LISTS.map(([k])=>getSrc(k)).filter(x=>x&&x.week===week);
-  const loaded=LISTS.filter(([k])=>$("t_"+k).value.trim()).every(([k])=>{const x=getSrc(k);return x&&x.week===week});
-  const pub=src.length?Math.max(...src.map(x=>x.pub)):null;
-  await me("/builds",{method:"POST",body:JSON.stringify({builds:collected.map(b=>({...b,season,week,scoring:$("scoring").value,rankingsPub:loaded?pub:null,source:loaded?"boone":"pasted"}))})});
+  const used=LISTS.filter(([k])=>$("t_"+k).value.trim()).map(([k])=>getSrc(k));
+  const kinds=new Set(used.map(x=>x&&x.week===week?x.source||"boone":"pasted")),source=kinds.size===1?[...kinds][0]:"pasted";
+  const pub=src.length?Math.max(...src.map(x=>x.pub)):null,loaded=source!=="pasted";
+  await me("/builds",{method:"POST",body:JSON.stringify({builds:collected.map(b=>({...b,season,week,scoring:$("scoring").value,rankingsPub:loaded?pub:null,source}))})});
   saveProfile();await loadSaved();
 }
 function buildStatus(b){
   const cw=+store.get("cur_week")||0;
   if(b.week&&cw&&b.week<cw)return["Past week","b-old"];
-  if(b.source!=="boone"||!b.rankingsPub)return["Pasted lists","b-old"];
-  if(b.latestPub&&b.latestPub>b.rankingsPub+60e3)return[`Expired · Boone updated ${fmtTime(b.latestPub)}`,"b-exp"];
+  if(!SRC_NAME[b.source]||!b.rankingsPub)return["Pasted lists","b-old"];
+  // The consensus moves a little every few hours as experts update, so only call it expired once it's half a day newer
+  if(b.latestPub&&b.latestPub>b.rankingsPub+(b.source==="ecr"?12*3600e3:60e3))return[`Expired · ${SRC_NAME[b.source]} updated ${fmtTime(b.latestPub)}`,"b-exp"];
   return["Current","b-ok"];
 }
 async function loadSaved(){
@@ -594,7 +605,7 @@ async function loadSaved(){
     const {builds}=await me("/builds?limit=30");
     if(!builds.length){el.innerHTML=`<div class="card"><h2>Saved lineups</h2><div class="ok">Your latest build for each league is saved here when you tap Build my lineups.</div></div>`;return}
     el.innerHTML=`<h2 style="font-size:17px;margin:20px 0 4px">Saved lineups</h2><div class="ok">Latest build for each league. Building again replaces it.</div>`+builds.map(b=>{const [t,c]=buildStatus(b),r=b.result||{};
-      return`<details class="sv"><summary><b>${esc(b.leagueName||"League")}</b> <span class="r">· Week ${b.week??"?"}</span><span class="when">Built ${esc(fmtTime(Date.parse(b.createdAt)))}${b.scoring?" · "+(b.scoring==="HALF"?"half-PPR":"PPR"):""}</span><span class="badge ${c}">${esc(t)}</span></summary><div class="body">`+
+      return`<details class="sv"><summary><b>${esc(b.leagueName||"League")}</b> <span class="r">· Week ${b.week??"?"}</span><span class="when">Built ${esc(fmtTime(Date.parse(b.createdAt)))}${SRC_NAME[b.source]?" · "+SRC_NAME[b.source]:""}${b.scoring?" · "+(b.scoring==="HALF"?"half-PPR":"PPR"):""}</span><span class="badge ${c}">${esc(t)}</span></summary><div class="body">`+
         (r.slots||[]).map(x=>`<div class="slot"><span class="s">${esc(x.slot.replace("_"," "))}</span><span>${x.name?esc(x.name)+` <span class="r">${esc(x.pos)} ${esc(x.team)}</span>`:"Nobody eligible"}</span><span class="r">${esc(x.rank||"")}</span></div>`).join("")+
         `<div class="swaps">${!(r.starts||[]).length&&!(r.sits||[]).length?'<div class="ok">No changes were needed.</div>':(r.starts||[]).map(x=>`<div><span class="start">START</span> ${esc(x)}</div>`).join("")+(r.sits||[]).map(x=>`<div><span class="sit">SIT</span> ${esc(x)}</div>`).join("")}</div>`+
         `<button class="link" data-del="${b.id}">Delete</button></div></details>`}).join("");
@@ -608,9 +619,12 @@ $("user").addEventListener("change",saveProfile);$("doubt").addEventListener("ch
 $("espn_ids").value=store.get("espn_leagues")||"";
 $("espn_ids").addEventListener("change",()=>{store.set("espn_leagues",$("espn_ids").value);store.set("espn_leagues",espnIds().join(", "));$("espn_ids").value=store.get("espn_leagues");saveProfile()});
 
-// ---------- Boone rankings loader ----------
-// Yahoo's Boone articles embed a FantasyPros widget; 317 is Boone's FantasyPros expert id. Not an official API, so Paste stays as a fallback.
+// ---------- Rankings loader (Boone or FantasyPros consensus) ----------
+// Yahoo's Boone articles embed a FantasyPros widget; 317 is Boone's FantasyPros expert id. Without the expert filter the same feed
+// gives the FantasyPros consensus (ECR). Not an official API, so Paste stays as a fallback.
 const FP_EXPERT="317",FP_POS={QB:"QB",FLEX:"FLX",K:"K",DEF:"DST"};
+const SRC_NAME={boone:"Boone",ecr:"Consensus"};
+const srcLabel=(source,kind)=>source==="boone"?"Boone's":kind==="ros"?"the consensus rest-of-season":"the consensus";
 function jsonp(url){
   return new Promise((ok,no)=>{
     const cb="fpcb_"+Math.random().toString(36).slice(2),s=document.createElement("script");
@@ -620,63 +634,74 @@ function jsonp(url){
     s.src=url+"&callback="+cb;document.head.appendChild(s);
   });
 }
-async function fetchBoone(season,week,sec,scoring){
-  const q=new URLSearchParams({sport:"NFL",year:season,week,position:FP_POS[sec],scoring:sec==="FLEX"?scoring:"STD",experts:"show",type:"ST",filters:FP_EXPERT,widget:"ST"});
+async function fetchFP(season,week,sec,scoring,source="boone",kind="week"){
+  const boone=source==="boone";
+  const q=new URLSearchParams({sport:"NFL",year:season,week:kind==="ros"?0:week,position:FP_POS[sec],scoring:sec==="FLEX"?scoring:"STD",type:kind==="ros"?"ROS":"ST"});
+  if(boone){q.set("experts","show");q.set("filters",FP_EXPERT);q.set("widget","ST")}
   const d=await jsonp("https://partners.fantasypros.com/api/v1/consensus-rankings.php?"+q);
   const who=(d.expert_names||{})[FP_EXPERT];
-  if(who&&!/boone/i.test(who))throw new Error(`FantasyPros expert ${FP_EXPERT} is now "${who}", not Boone. Paste lists for now.`);
+  if(boone&&who&&!/boone/i.test(who))throw new Error(`FantasyPros expert ${FP_EXPERT} is now "${who}", not Boone. Paste lists for now.`);
   // rank_ecr is the 1..N numbering Yahoo's widget displays (Boone's raw ranks have gaps for players FantasyPros dropped)
-  const ps=(d.players||[]).map(p=>({r:+(p.rank_ecr||(p.experts||{})[FP_EXPERT]),n:p.player_name,t:teamKey(p.player_team_id),pos:sec==="FLEX"?(p.player_positions||"").split(",")[0]:""}))
+  const ps=(d.players||[]).map(p=>({r:+(p.rank_ecr||(boone&&(p.experts||{})[FP_EXPERT])),n:p.player_name,t:teamKey(p.player_team_id),pos:sec==="FLEX"?(p.player_positions||"").split(",")[0]:"",o:typeof p.player_owned_avg==="number"?Math.round(p.player_owned_avg):null}))
     .filter(p=>p.r&&p.n).sort((a,b)=>a.r-b.r);
-  const pubStr=(d.expert_pub||{})[FP_EXPERT],pub=pubStr?Date.parse(pubStr.replace(" ","T")+"Z"):(d.last_updated_ts||0)*1000;
+  const pubStr=boone&&(d.expert_pub||{})[FP_EXPERT],pub=pubStr?Date.parse(pubStr.replace(" ","T")+"Z"):(d.last_updated_ts||0)*1000;
   return{ps,pub};
 }
 async function sleeperWeek(){
   const state=await api("/state/nfl",true),week=state.display_week||state.week;
   store.set("cur_week",String(week));return{season:state.season,week};
 }
-async function loadBoone(){
-  const st=$("status"),btn=$("loadB"),scoring=$("scoring").value;
-  btn.disabled=true;st.textContent="Loading Boone's rankings…";
+const listText=ps=>ps.map(p=>`${p.r}. ${p.n}${p.t?` (${p.t}${p.pos?", "+p.pos:""})`:""}`).join("\n");
+async function loadRankings(){
+  const st=$("status"),btn=$("loadB"),scoring=$("scoring").value,source=$("rsrc").value;
+  btn.disabled=true;st.textContent=`Loading ${srcLabel(source)} rankings…`;
   try{
     const {season,week}=await sleeperWeek();
-    const res=await booneAll(season,week,scoring);
+    const res=await rankLists(source,"week",season,week,scoring);
     const fatal=res.find(r=>r.err&&/not Boone/.test(r.err.message));if(fatal)throw fatal.err;
     if(!res.some(r=>r.ps&&r.ps.length)){
       if(res.every(r=>r.err))throw res[0].err;
-      st.textContent=`Boone's week ${week} rankings aren't published yet. Your current lists were kept.`;return;
+      st.textContent=`${srcLabel(source).replace(/^t/,"T")} week ${week} rankings aren't published yet. Your current lists were kept.`;return;
     }
     const got=[],missing=[];let latest=0;
     LISTS.forEach(([k,l],i)=>{const r=res[i];
       if(!r.ps||!r.ps.length){missing.push(l);return}
-      $("t_"+k).value=r.ps.map(p=>`${p.r}. ${p.n}${p.t?` (${p.t}${p.pos?", "+p.pos:""})`:""}`).join("\n");
-      updCount(k,true);store.set("src_"+k,JSON.stringify({season,week,scoring,pub:r.pub}));updCount(k);
+      $("t_"+k).value=listText(r.ps);
+      updCount(k,true);store.set("src_"+k,JSON.stringify({season,week,scoring,source,pub:r.pub}));updCount(k);
       got.push(l);latest=Math.max(latest,r.pub);
     });
     $("bnote").hidden=true;
-    st.textContent=`Loaded Boone's week ${week} ${scoring==="HALF"?"half-PPR":"PPR"} rankings (updated ${fmtTime(latest)}).`+(missing.length?` Not available yet: ${missing.join(", ")}.`:"");
+    st.textContent=`Loaded ${srcLabel(source)} week ${week} ${scoring==="HALF"?"half-PPR":"PPR"} rankings (updated ${fmtTime(latest)}).`+(missing.length?` Not available yet: ${missing.join(", ")}.`:"");
   }catch(e){st.innerHTML=`<span class="err">${esc(e.message)}</span>`}
   finally{btn.disabled=false}
 }
-// Prefer the Worker (no third-party script in the page, and it saves each version for "expired" checks); JSONP as fallback
-async function booneAll(season,week,scoring){
+// One entry per LISTS item: {ps,pub} or {err}. Prefer the Worker (no third-party script in the page, and it saves each version
+// for "expired" checks); JSONP as fallback. Cached for a few minutes so tabs can share a load.
+const RL_CACHE={};
+async function rankLists(source,kind,season,week,scoring){
+  const ck=[source,kind,season,week,scoring].join("|"),c=RL_CACHE[ck];
+  if(c&&Date.now()-c.ts<5*60e3)return c.res;
+  let res=null;
   if(apiBase())try{
-    const r=await fetch(`${apiBase()}/rankings?season=${season}&week=${week}&scoring=${scoring}`,{cache:"no-store"}),d=await r.json();
+    const r=await fetch(`${apiBase()}/rankings?season=${season}&week=${week}&scoring=${scoring}&source=${source}&kind=${kind}`,{cache:"no-store"}),d=await r.json();
     if(r.status===409)return LISTS.map(()=>({err:new Error(d.error)}));
-    if(r.ok&&d.lists)return LISTS.map(([k])=>{const l=d.lists[k];return l?{ps:l.players.map(p=>({...p,t:teamKey(p.t)})),pub:l.pub}:{ps:[],pub:0}});
+    if(r.ok&&d.lists)res=LISTS.map(([k])=>{const l=d.lists[k];return l?{ps:l.players.map(p=>({...p,t:teamKey(p.t)})),pub:l.pub}:{ps:[],pub:0}});
   }catch(e){}
-  return Promise.all(LISTS.map(([k])=>fetchBoone(season,week,k,scoring).catch(e=>({err:e}))));
+  if(!res)res=await Promise.all(LISTS.map(([k])=>fetchFP(season,week,k,scoring,source,kind).catch(e=>({err:e}))));
+  if(res.some(r=>r.ps&&r.ps.length))RL_CACHE[ck]={ts:Date.now(),res};
+  return res;
 }
 async function booneStatus(season,week){
   if(apiBase())try{const r=await fetch(`${apiBase()}/rankings/status?season=${season}&week=${week}`,{cache:"no-store"});if(r.ok){const d=await r.json();return{pub:d.latestPub||0}}}catch(e){}
-  const r=await fetchBoone(season,week,"QB","STD");return{pub:r.ps.length?r.pub:0};
+  const r=await fetchFP(season,week,"QB","STD");return{pub:r.ps.length?r.pub:0};
 }
-// On open: say so if Boone has posted rankings newer than the loaded lists
+// On open: say so if Boone has posted rankings newer than the loaded lists (only when Boone is the chosen source)
 async function checkBoone(){
   try{
     const {season,week}=await sleeperWeek();
     for(const [k] of LISTS)updCount(k);
-    const src=getSrc("QB")||getSrc("FLEX"),r=await booneStatus(season,week);
+    if($("rsrc").value!=="boone")return;
+    const src=[getSrc("QB"),getSrc("FLEX")].find(x=>x&&(x.source||"boone")==="boone"),r=await booneStatus(season,week);
     if(!r.pub)return;
     const behind=!src||src.week!==week||r.pub>src.pub+60e3;
     if(behind){$("bnote").textContent=`Boone's week ${week} rankings ${src&&src.week===week?"were updated":"are out"} (${fmtTime(r.pub)}). Tap Load to get them.`;$("bnote").hidden=false}
@@ -839,9 +864,86 @@ function wxRender(){
 $("w_starters").checked=store.get("w_starters")!=="0";$("w_allgames").checked=store.get("w_allgames")==="1";
 $("w_go").onclick=wxRun;$("w_starters").onchange=wxRender;$("w_allgames").onchange=wxRender;
 
+// ---------- Free Agents tab ----------
+// Free agents = ranked players on no roster in the league. Each one is checked against your own players at his position:
+// ranked over one of your current starters (an upgrade) or over your worst ranked bench player (a swap for depth).
+const secOf=pos=>pos==="QB"?"QB":["RB","WR","TE"].includes(pos)?"FLEX":pos==="K"?"K":pos==="DEF"?"DEF":null;
+const FA_TOP={QB:5,RB:8,WR:8,TE:5,K:3,DEF:3};
+const fmtAdds=n=>n>=1000?(n/1000).toFixed(n>=10000?0:1)+"k":String(n);
+let FA=null;
+async function faRun(){
+  const user=$("user").value.trim(),st=$("fa_status");store.set("user",user);
+  if(!user){st.textContent="Enter your Sleeper username.";return}
+  const [source,kind]=$("fa_src").value.split(":");
+  $("fa_go").disabled=true;
+  try{
+    const sl=FA&&FA.user===user&&Date.now()-FA.ts<10*60e3?FA.sl:await loadSleeper(user,false,st);
+    const idx=sl.leagues.map((lg,i)=>sl.mineAll[i]?i:-1).filter(i=>i>=0);
+    if(!idx.length)throw new Error("No leagues with your roster found.");
+    store.set("cur_week",String(sl.week));
+    st.textContent=`Loading ${srcLabel(source,kind)} rankings…`;
+    const scs=[...new Set(idx.map(i=>leagueFormat(sl.leagues[i]).sc))];
+    const [trending,...res]=await Promise.all([api("/players/nfl/trending/add?lookback_hours=24&limit=300").catch(()=>[]),...scs.map(sc=>rankLists(source,kind,sl.state.season,sl.week,sc))]);
+    const fatal=res.flat().find(r=>r.err&&/not Boone/.test(r.err.message));if(fatal)throw fatal.err;
+    const lists={};let pub=0;
+    scs.forEach((sc,j)=>{if(!res[j].some(r=>r.ps&&r.ps.length))return;lists[sc]={};
+      LISTS.forEach(([k],n)=>{const r=res[j][n];if(!r.ps||!r.ps.length)return;lists[sc][k]={ps:r.ps,table:parseList(listText(r.ps),k),adds:{}};pub=Math.max(pub,r.pub)});
+      for(const t of trending||[]){const p=sl.players[t.player_id],k=p&&secOf(p.p),l=k&&lists[sc][k];if(!l)continue;const rk=lookup(l.table,p);if(rk!=null)l.adds[rk]=t.count}
+    });
+    if(!Object.keys(lists).length){const e=res.flat().find(r=>r.err);throw e?e.err:new Error(`${srcLabel(source,kind).replace(/^t/,"T")} rankings for week ${sl.week} aren't published yet.`)}
+    FA={user,ts:FA&&FA.sl===sl?FA.ts:Date.now(),sl,source,kind,lists};
+    const last=store.get("fa_league");
+    $("fa_league").innerHTML=idx.map(i=>{const n=faCompute(i).filter(x=>x.note&&x.note.up).length;return`<option value="${i}">${esc(sl.leagues[i].name)}${n?` · ${n} upgrade${n>1?"s":""}`:""}</option>`}).join("");
+    const keep=idx.find(i=>sl.leagues[i].league_id===last);if(keep!=null)$("fa_league").value=String(keep);
+    $("fa_ui").hidden=false;
+    st.textContent=`${srcLabel(source,kind).replace(/^t/,"T")} ${kind==="ros"?"":`week ${sl.week} `}rankings (updated ${fmtTime(pub)}).`+(trending&&trending.length?" Adds from Sleeper.":"");
+    faRender();
+  }catch(e){st.innerHTML=`<span class="err">${esc(e.message)}</span>`}
+  $("fa_go").disabled=false;
+}
+function faCompute(i){
+  const {sl,lists,kind}=FA,lg=sl.leagues[i],L=lists[leagueFormat(lg).sc]||{};
+  const elig=new Set(lg.roster_positions.filter(p=>!NON.has(p)).flatMap(s=>FLEX[s]||[s]));
+  const rostered={QB:new Set(),FLEX:new Set(),K:new Set(),DEF:new Set()};
+  for(const r of sl.rosters[i])for(const id of r.players||[]){const p=sl.players[id],k=p&&secOf(p.p);if(!k||!L[k])continue;const rk=lookup(L[k].table,p);if(rk!=null)rostered[k].add(rk)}
+  const starters=new Set(realIds(sl.curAll[i]?.starters)),my={};
+  for(const id of sl.mineAll[i].players||[]){const p=sl.players[id],k=p&&secOf(p.p);if(!k||!L[k])continue;const rk=lookup(L[k].table,p);
+    (my[p.p]||(my[p.p]=[])).push({name:p.n||`${p.f} ${p.l}`,rank:rk??Infinity,pr:rk==null?null:k==="FLEX"?lookupPosRank(L.FLEX.table,p)||"#"+rk:p.p+rk,start:starters.has(id)})}
+  const worst=a=>a.reduce((w,m)=>!w||m.rank>w.rank?m:w,null),out=[];
+  for(const [k] of LISTS){const l=L[k];if(!l)continue;const pc={};
+    for(const e of l.ps){const pos=k==="FLEX"?e.pos:k;if(!pos)continue;pc[pos]=(pc[pos]||0)+1;
+      if(!elig.has(pos)||rostered[k].has(e.r))continue;
+      const ms=my[pos]||[],ws=worst(ms.filter(m=>m.start));
+      // This week, an unranked bench player is usually on bye, so he isn't a fair comparison
+      const wb=worst(ms.filter(m=>!m.start&&(m.rank!==Infinity||kind==="ros")));
+      const note=ws&&e.r<ws.rank?{up:true,txt:`Over your starter ${ws.name} (${ws.pr||"unranked"})`}:wb&&e.r<wb.rank?{up:false,txt:`Over your bench ${wb.name} (${wb.pr||"unranked"})`}:null;
+      out.push({...e,pos,prl:pos+pc[pos],flex:k==="FLEX",adds:l.adds[e.r]||0,note});
+    }}
+  return out;
+}
+function faRender(){
+  if(!FA)return;
+  const i=+$("fa_league").value,pos=$("fa_pos").value,all=faCompute(i);store.set("fa_league",FA.sl.leagues[i].league_id);store.set("fa_pos",pos);
+  const row=e=>{const meta=[e.o!=null?`Rostered ${e.o}%`:"",e.adds?`+${fmtAdds(e.adds)} adds`:""].filter(Boolean).join(" · ");
+    return`<div class="fa"><span class="s">${esc(e.prl)}</span><span>${esc(e.n)} <span class="r">${esc(e.pos)} ${esc(e.t||"FA")}</span>${meta?`<div class="m">${esc(meta)}</div>`:""}${e.note?`<div class="${e.note.up?"up":"bnch"}">${esc(e.note.txt)}</div>`:""}</span><span class="r">${e.flex?"#"+e.r:""}</span></div>`};
+  const sc=leagueFormat(FA.sl.leagues[i]).sc;
+  if(!FA.lists[sc]){$("fa_out").innerHTML=`<div class="card ok">No ${sc==="HALF"?"half-PPR":"PPR"} rankings available.</div>`;return}
+  const elig=new Set(FA.sl.leagues[i].roster_positions.filter(p=>!NON.has(p)).flatMap(s=>FLEX[s]||[s]));
+  const groups=(pos==="ALL"?["QB","RB","WR","TE","K","DEF"].filter(p=>elig.has(p)):[pos]).map(p=>[p,all.filter(e=>e.pos===p).slice(0,pos==="ALL"?FA_TOP[p]:30)]);
+  const ups=all.filter(e=>e.note&&e.note.up).length;
+  $("fa_out").innerHTML=`<div class="ok" style="margin:10px 0 0">${sc==="HALF"?"Half-PPR":"PPR"} rankings · ${ups?`<span class="start">${ups} upgrade${ups>1?"s":""}</span> over your starters`:"No free agent is ranked over your starters"}</div>`+
+    groups.map(([p,a])=>`<div class="card"><h2>${p==="DEF"?"Defenses":p==="K"?"Kickers":p}</h2>${a.length?a.map(row).join(""):`<div class="ok">${!elig.has(p)?`This league has no ${p} spot.`:`No ranked free agents${FA.lists[sc][secOf(p)]?"":` (no ${p} list)`}.`}</div>`}</div>`).join("");
+}
+$("fa_src").value=store.get("fa_src")||"boone:week";if(!$("fa_src").value)$("fa_src").value="boone:week";
+$("fa_pos").value=store.get("fa_pos")||"ALL";if(!$("fa_pos").value)$("fa_pos").value="ALL";
+$("fa_go").onclick=faRun;$("fa_league").onchange=faRender;$("fa_pos").onchange=faRender;
+$("fa_src").onchange=()=>{store.set("fa_src",$("fa_src").value);saveProfile();if(FA)faRun()};
+$("rsrc").value=SRC_NAME[store.get("rsrc")]?store.get("rsrc"):"boone";
+$("rsrc").onchange=()=>{store.set("rsrc",$("rsrc").value);saveProfile();$("bnote").hidden=true;if(getSrc("FLEX")||getSrc("QB"))loadRankings();else checkBoone()};
+
 $("scoring").value=store.get("scoring")==="HALF"?"HALF":"PPR";
-$("scoring").onchange=()=>{store.set("scoring",$("scoring").value);saveProfile();if(getSrc("FLEX"))loadBoone()};
-$("loadB").onclick=loadBoone;
+$("scoring").onchange=()=>{store.set("scoring",$("scoring").value);saveProfile();if(getSrc("FLEX"))loadRankings()};
+$("loadB").onclick=loadRankings;
 $("user").value=store.get("user")||"";buildBoxes();checkBoone();syncUI();if(synced())loadSaved();$("newweek").onclick=()=>{for(const [k] of LISTS){$("t_"+k).value="";updCount(k,true)}$("status").textContent="Cleared. Tap Load or paste this week's lists."};$("doubt").checked=store.get("doubt")==="1";$("debug").checked=store.get("debug")==="1";
 const TABS=["lineup","fa","weather","trade"];
 function showTab(t){if(!TABS.includes(t))t="lineup";
