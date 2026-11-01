@@ -1,0 +1,9 @@
+{
+  // Cloudflare Worker for Boone Lineups. Deployed by Cloudflare Workers Builds from the `worker/` folder.
+  // "name" must match the Worker name chosen in the Cloudflare dashboard.
+  "$schema": "https://unpkg.com/wrangler@4.20.0/config-schema.json",
+  "name": "boone-api",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-01",
+  "observability": { "enabled": true }
+}
