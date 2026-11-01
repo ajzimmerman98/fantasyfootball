@@ -23,7 +23,7 @@ button:disabled{opacity:.6}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin:12px 0}
 .card h2{font-size:17px;margin:0 0 8px}
 .slot{display:grid;grid-template-columns:76px 1fr auto;gap:6px;padding:5px 0;border-top:1px solid var(--line);font-size:15px;align-items:baseline}
-.slot:first-of-type{border-top:0}
+.slot:first-of-type{border-top:0}.slot>.r{text-align:right}.pts{font-size:12px;color:var(--accent);font-weight:600}
 .s{color:var(--muted);font-size:12px;font-weight:600}
 .r{color:var(--muted);font-size:13px}
 .n{font-size:12px;color:var(--warn)}
@@ -40,7 +40,6 @@ button:disabled{opacity:.6}
 .box textarea{min-height:0;font-size:13px;padding:8px}
 .loadrow{display:flex;gap:8px;margin-top:14px}.loadrow button{flex:1}
 select{padding:0 10px;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--text);font-size:15px}
-.bnote{background:var(--card);border:1px solid var(--warn);color:var(--text);border-radius:10px;padding:8px 10px;margin:10px 0 0;font-size:14px}
 .cnt.src{color:var(--muted)}
 .sync{margin:10px 0 0;font-size:14px}.sync summary{cursor:pointer;color:var(--accent);font-weight:600}.sync #acode{flex:1}
 .sv{background:var(--card);border:1px solid var(--line);border-radius:12px;margin:8px 0;font-size:14px}
@@ -71,7 +70,7 @@ select.full{width:100%;height:44px}
 .tp:first-child{border-top:0}.tp input{width:20px;height:20px;margin:0}.tp b{font-variant-numeric:tabular-nums}.tp.off b{color:var(--muted);font-weight:400}
 .tsum{position:sticky;bottom:0;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 14px;margin:12px 0;box-shadow:0 -2px 12px rgba(0,0,0,.08);font-size:15px}
 .tsum .big{font-size:18px;font-weight:700;margin-top:2px}.tsum .up{color:var(--good)}.tsum .down{color:var(--bad)}
-.tv{color:var(--accent);font-size:12px;font-weight:600}
+.tv{color:var(--accent);font-size:12px;font-weight:600;white-space:nowrap}
 .idea{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 14px;margin:10px 0;font-size:14px}
 .idea h3{font-size:15px;margin:0 0 6px;display:flex;justify-content:space-between;gap:8px}.idea h3 span{color:var(--good);white-space:nowrap}
 .idea .side{margin:2px 0}.idea .side .lbl{display:inline-block;width:68px;color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase}
@@ -98,12 +97,8 @@ select.full{width:100%;height:44px}
 <button role="tab" id="tb_trade" data-tab="trade" aria-controls="p_trade">Trades</button>
 </nav>
 <section class="panel" id="p_lineup" role="tabpanel" aria-labelledby="tb_lineup">
-<div class="loadrow"><select id="rsrc" style="flex:1;height:44px" aria-label="Rankings source"><option value="boone">Justin Boone</option><option value="ecr">FantasyPros</option><option value="sleeper">Sleeper projections</option></select><select id="scoring" style="flex:1;height:44px" aria-label="Scoring"><option value="PPR">PPR</option><option value="HALF">Half-PPR</option></select></div>
-<div class="loadrow" style="margin-top:8px"><button id="loadB">Load rankings</button></div>
-<div id="bnote" class="bnote" hidden></div>
-<label>Rankings lists (filled by Load, or paste from Boone's article). FantasyPros = the consensus of all its experts. Sleeper projections rank by projected points.</label>
-<div id="boxes"></div>
-<button class="link" id="newweek">Clear all lists (new week)</button>
+<label>Rankings</label>
+<div class="loadrow" style="margin-top:0"><select id="rsrc" style="flex:1;height:44px" aria-label="Rankings source"><option value="boone">Justin Boone</option><option value="ecr">FantasyPros</option><option value="sleeper">Sleeper projections</option></select><select id="scoring" style="flex:1;height:44px" aria-label="Scoring"><option value="AUTO">League scoring</option><option value="PPR">PPR</option><option value="HALF">Half-PPR</option></select></div>
 <div class="row"><input id="doubt" type="checkbox"><label for="doubt" style="margin:0;color:var(--text)">Allow Doubtful players</label></div>
 <div class="row"><input id="debug" type="checkbox"><label for="debug" style="margin:0;color:var(--text)">Show debug info</label></div>
 <button id="go">Build my lineups</button>
@@ -111,7 +106,7 @@ select.full{width:100%;height:44px}
 <div id="out"></div>
 <button class="link" id="refresh">Refresh player data</button>
 <div id="saved"></div>
-<small>Sleeper's API is read-only, so make the swaps in the Sleeper app. Unranked players are usually on bye. TV = rest-of-season trade value for that league's format, from the source picked on the Trades tab.</small>
+<small>Build my lineups loads this week's rankings from the source you pick: Justin Boone, the FantasyPros consensus of all its experts, or Sleeper projections (ranked by projected points). League scoring uses each league's own PPR or half-PPR setting (standard scoring leagues use half-PPR). Pts = Sleeper's projected points in each league's own scoring. Sleeper's API is read-only, so make the swaps in the Sleeper app. Unranked players are usually on bye. TV = rest-of-season trade value for that league's format, from the source picked on the Trades tab.</small>
 </section>
 <section class="panel" id="p_fa" role="tabpanel" aria-labelledby="tb_fa" hidden>
 <label for="fa_src">Rank free agents by</label>
@@ -205,32 +200,6 @@ function parseList(text,sec){
 const LISTS=[["QB","Quarterbacks"],["FLEX","FLEX (RB / WR / TE)"],["K","Kickers"],["DEF","Defenses"]];
 function ago(ts){const m=Math.round((Date.now()-ts)/60000);return m<1?"just now":m<60?m+"m ago":m<1440?Math.round(m/60)+"h ago":Math.round(m/1440)+"d ago"}
 const fmtTime=ms=>new Date(ms).toLocaleString([],{weekday:"short",hour:"numeric",minute:"2-digit"});
-function getSrc(k){try{return JSON.parse(store.get("src_"+k)||"null")}catch(e){return null}}
-// stamp=true means the user changed the text by hand, so it no longer matches a loaded source
-function updCount(k,stamp){
-  const v=$("t_"+k).value;
-  const n=Object.keys(parseList(v,k)).length;
-  store.set("list_"+k,v);
-  if(stamp){store.set("ts_"+k,v.trim()?String(Date.now()):"");store.set("src_"+k,"")}
-  const ts=+store.get("ts_"+k)||0,el=$("c_"+k),src=getSrc(k),cw=+store.get("cur_week")||0;
-  if(n&&src){
-    el.textContent=`${n} players · ${SRC_NAME[src.source||"boone"]} week ${src.week}${k==="FLEX"?" "+(src.scoring==="HALF"?"half-PPR":"PPR"):""} · updated ${fmtTime(src.pub)}`;
-    el.classList.add("src");el.classList.toggle("stale",!!cw&&src.week<cw);
-  }else{
-    el.textContent=n?`${n} players${ts?" · "+ago(ts):""}`:"";
-    el.classList.remove("src");el.classList.toggle("stale",!!ts&&Date.now()-ts>3*86400e3);
-  }
-}
-function buildBoxes(){
-  $("boxes").innerHTML=LISTS.map(([k,l])=>`<div class="box"><div class="bh"><b>${l}</b><button class="mini" data-p="${k}">Paste</button><button class="mini ghost" data-c="${k}">Clear</button></div><div class="cnt" id="c_${k}"></div><textarea id="t_${k}" rows="2" placeholder="Tap Paste, or paste here"></textarea></div>`).join("");
-  for(const [k] of LISTS){const t=$("t_"+k);t.value=store.get("list_"+k)||"";updCount(k);t.addEventListener("input",()=>updCount(k,true))}
-  $("boxes").addEventListener("click",async e=>{
-    const p=e.target.dataset.p,c=e.target.dataset.c;
-    if(p){try{const txt=await navigator.clipboard.readText();const ta=$("t_"+p);ta.value=txt;updCount(p,true)}catch(err){$("status").textContent="Couldn't read the clipboard. Tap the box and paste manually.";$("t_"+p).focus()}}
-    if(c){$("t_"+c).value="";updCount(c,true)}
-  });
-}
-function collect(){const r={};for(const [k] of LISTS){const o=parseList($("t_"+k).value,k);if(Object.keys(o).length)r[k]=o}return r}
 // Finds player p in a parsed list. Returns {kind,key}: kind "nt" = name|team key, "name" = name key, "team" = DEF by team
 function findEntry(table,p){
   if(!table)return null;
@@ -304,8 +273,10 @@ function build(slots,cands){
 }
 
 const rankTxt=c=>c.rp===Infinity?"--":(c.pr?c.pr+" · ":"")+"#"+c.rp;
+const ptsHtml=v=>v==null?"":`<div class="pts">${v} pts</div>`;
 function render(lg,roster,cur,players,ranks,opts){
   const {starters,src}=cur,fmt=leagueFormat(lg);
+  const pv=c=>opts.pts?opts.pts(players[c.id]):null;
   const tvTag=c=>{const v=tradeValue(players[c.id],fmt,c.id);return v==null?"":` <span class="tv">TV ${v}</span>`};
   const slots=lg.roster_positions.filter(p=>!NON.has(p));
   const cands=candidates(roster,starters,players,ranks,opts.allowDoubt),line=build(slots,cands),byId=Object.fromEntries(cands.map(c=>[c.id,c]));
@@ -313,7 +284,7 @@ function render(lg,roster,cur,players,ranks,opts){
   slots.forEach((s,i)=>{const c=line[i];
     if(!c){h+=`<div class="slot"><span class="s">${esc(s)}</span><span>Nobody eligible</span><span></span></div>`;return}
     const notes=[];if(c.rp===Infinity&&(ranks[c.pos]||(["RB","WR","TE"].includes(c.pos)&&ranks.FLEX)))notes.push("UNRANKED (bye?)");if(c.inj)notes.push(c.inj);
-    h+=`<div class="slot"><span class="s">${esc(s.replace("_"," "))}</span><span>${esc(c.name)} <span class="r">${esc(c.pos)} ${esc(c.team||"")}</span>${tvTag(c)}${notes.length?`<div class="n">${esc(notes.join(", "))}</div>`:""}</span><span class="r">${esc(rankTxt(c))}</span></div>`});
+    h+=`<div class="slot"><span class="s">${esc(s.replace("_"," "))}</span><span>${esc(c.name)} <span class="r">${esc(c.pos)} ${esc(c.team||"")}</span>${tvTag(c)}${notes.length?`<div class="n">${esc(notes.join(", "))}</div>`:""}</span><span class="r">${esc(rankTxt(c))}${ptsHtml(pv(c))}</span></div>`});
   const nw=new Set(line.filter(Boolean).map(c=>c.id)),old=new Set(realIds(starters));
   const hasL=c=>ranks[c.pos]||(["RB","WR","TE"].includes(c.pos)&&ranks.FLEX);
   const tg=c=>c.out?` (${c.inj||"out"})`:!c.pos||!hasL(c)?"":c.rp===Infinity?" (unranked)":` (${c.pr?c.pr+", ":""}#${c.rp})`;
@@ -325,10 +296,10 @@ function render(lg,roster,cur,players,ranks,opts){
   else{starts.forEach(c=>h+=`<div><span class="start">START</span> ${esc(c.name)}${esc(tg(c))}</div>`);sits.forEach(c=>h+=`<div><span class="sit">SIT</span> ${esc(c.name)}${esc(tg(c))}</div>`)}
   h+=`</div>`;
   const bench=cands.filter(c=>!nw.has(c.id)).sort((a,b)=>a.rp===b.rp?a.name.localeCompare(b.name):a.rp<b.rp?-1:1);
-  if(bench.length)h+=`<div class="bn"><h3>Bench</h3>`+bench.map(c=>`<div class="slot"><span class="s">BN</span><span>${esc(c.name)} <span class="r">${esc(c.pos)} ${esc(c.team||"")}</span>${tvTag(c)}${c.inj?`<div class="n">${esc(c.inj)}</div>`:""}</span><span class="r">${esc(rankTxt(c))}</span></div>`).join("")+`</div>`;
+  if(bench.length)h+=`<div class="bn"><h3>Bench</h3>`+bench.map(c=>`<div class="slot"><span class="s">BN</span><span>${esc(c.name)} <span class="r">${esc(c.pos)} ${esc(c.team||"")}</span>${tvTag(c)}${c.inj?`<div class="n">${esc(c.inj)}</div>`:""}</span><span class="r">${esc(rankTxt(c))}${ptsHtml(pv(c))}</span></div>`).join("")+`</div>`;
   if(opts.debug)h+=debugBlock(slots,starters,line,src,players,byId);
-  if(opts.collect)opts.collect.push({leagueId:lg.league_id,leagueName:lg.name,result:{
-    slots:slots.map((s,i)=>{const c=line[i];return c?{slot:s,name:c.name,pos:c.pos,team:c.team||"",rank:rankTxt(c)}:{slot:s,name:null}}),
+  if(opts.collect)opts.collect.push({leagueId:lg.league_id,leagueName:lg.name,scoring:opts.scoring,rankingsPub:opts.pub,result:{
+    slots:slots.map((s,i)=>{const c=line[i];return c?{slot:s,name:c.name,pos:c.pos,team:c.team||"",rank:rankTxt(c),pts:pv(c)}:{slot:s,name:null}}),
     starts:starts.map(c=>c.name+tg(c)),sits:sits.map(c=>c.name+tg(c))}});
   return h+`</div>`;
 }
@@ -382,23 +353,40 @@ async function addEspn(season,myId,leagues,rosters,matchups,players,st){
   return d.errors||[];
 }
 async function run(force){
-  const user=$("user").value.trim();
+  const user=$("user").value.trim(),source=$("rsrc").value,mode=$("scoring").value;
   store.set("user",user);store.set("doubt",$("doubt").checked?"1":"0");store.set("debug",$("debug").checked?"1":"0");
   const out=$("out"),st=$("status");out.innerHTML="";
   if(!user){st.textContent="Enter your Sleeper username.";return}
-  const ranks=collect();
-  if(!Object.keys(ranks).length){st.innerHTML='<span class="err">No rankings found. Paste at least one list first.</span>';return}
   $("go").disabled=true;
   try{
     const {state,week,leagues,players,mineAll,curAll,espnErrors}=await loadSleeper(user,force,st);
-    if(apiBase())await ensureValues(leagues.filter((lg,i)=>mineAll[i]));
-    st.textContent=`Season ${state.season}, week ${week}. ${leagues.length} league(s).`+espnErrors.map(e=>` ESPN ${e.leagueId}: ${e.error}`).join("");
+    store.set("cur_week",String(week));
+    const idx=leagues.map((lg,i)=>mineAll[i]?i:-1).filter(i=>i>=0);
+    const scOf=lg=>mode==="PPR"||mode==="HALF"?mode:leagueFormat(lg).sc;
+    const need=[...new Set(idx.map(i=>scOf(leagues[i])))],ptsNeed=[...new Set(idx.map(i=>leagueFormat(leagues[i]).sc))];
+    st.textContent=`Loading ${srcLabel(source)} rankings…`;
+    // Rankings from the chosen source; Sleeper projections (in each league's own scoring) for the points; trade values for TV tags
+    const [rk,pj]=await Promise.all([
+      Promise.all(need.map(sc=>rankLists(source,"week",state.season,week,sc))),
+      Promise.all(ptsNeed.map(sc=>rankLists("sleeper","week",state.season,week,sc).catch(()=>null))),
+      apiBase()?ensureValues(idx.map(i=>leagues[i])):null]);
+    const fatal=rk.flat().find(r=>r.err&&/not Boone/.test(r.err.message));if(fatal)throw fatal.err;
+    const R={},P={},pubs={};
+    need.forEach((sc,j)=>{const t={};let pub=0;LISTS.forEach(([k],n)=>{const r=rk[j][n];if(r.ps&&r.ps.length){t[k]=parseList(listText(r.ps),k);pub=Math.max(pub,r.pub)}});if(Object.keys(t).length){R[sc]=t;pubs[sc]=pub}});
+    if(!Object.keys(R).length){const e=rk.flat().find(r=>r.err);throw e?e.err:new Error(`${srcLabel(source)} week ${week} rankings aren't published yet.`)}
+    ptsNeed.forEach((sc,j)=>{const res=pj[j];if(!res)return;const t={};LISTS.forEach(([k],n)=>{const r=res[n];if(r&&r.ps&&r.ps.length)t[k]={table:parseList(listText(r.ps),k),pts:Object.fromEntries(r.ps.map(p=>[p.r,p.pts]))}});if(Object.keys(t).length)P[sc]=t});
+    st.textContent=`Season ${state.season}, week ${week}. ${idx.length} league(s). ${srcLabel(source)}${source==="sleeper"?"":" rankings"} updated ${fmtTime(Math.max(...Object.values(pubs)))}.`+
+      (Object.keys(P).length?"":" Projected points unavailable.")+espnErrors.map(e=>` ESPN ${e.leagueId}: ${e.error}`).join("");
     const opts={allowDoubt:$("doubt").checked,debug:$("debug").checked,collect:[]};
     leagues.forEach((lg,i)=>{
-      const mine=mineAll[i];
-      out.insertAdjacentHTML("beforeend",mine?render(lg,mine,curAll[i],players,ranks,opts):`<div class="card"><h2>${esc(lg.name)}</h2><div class="ok">Couldn't find your roster.</div></div>`);
+      const mine=mineAll[i],sc=scOf(lg),ranks=R[sc];
+      if(!mine){out.insertAdjacentHTML("beforeend",`<div class="card"><h2>${esc(lg.name)}</h2><div class="ok">Couldn't find your roster.</div></div>`);return}
+      if(!ranks){out.insertAdjacentHTML("beforeend",`<div class="card"><h2>${esc(lg.name)}</h2><div class="ok">No ${sc==="HALF"?"half-PPR":"PPR"} rankings available.</div></div>`);return}
+      const pt=P[leagueFormat(lg).sc];
+      const pts=p=>{const k=p&&secOf(p.p),l=pt&&k&&pt[k];if(!l)return null;const r=lookup(l.table,p);return r==null?null:l.pts[r]??null};
+      out.insertAdjacentHTML("beforeend",render(lg,mine,curAll[i],players,ranks,{...opts,pts,scoring:sc,pub:pubs[sc]}));
     });
-    if(synced())saveBuilds(+state.season,week,opts.collect).catch(e=>{st.textContent+=` Couldn't save: ${e.message}`});
+    if(synced())saveBuilds(+state.season,week,source,opts.collect).catch(e=>{st.textContent+=` Couldn't save: ${e.message}`});
   }catch(e){st.innerHTML=`<span class="err">${esc(e.message)}</span>`}
   $("go").disabled=false;
 }
@@ -630,7 +618,7 @@ async function me(path,opt={}){
   if(!r.ok)throw new Error(d.error||`Sync error ${r.status}`);
   return d;
 }
-const settingsNow=()=>({scoring:$("scoring").value,rankSource:$("rsrc").value,faSource:$("fa_src").value,tvSource:$("tr_vsrc").value,doubt:$("doubt").checked,debug:$("debug").checked,espnLeagues:espnIds()});
+const settingsNow=()=>({scoringMode:$("scoring").value,rankSource:$("rsrc").value,faSource:$("fa_src").value,tvSource:$("tr_vsrc").value,doubt:$("doubt").checked,debug:$("debug").checked,espnLeagues:espnIds()});
 let profTimer=null;
 function saveProfile(){if(!synced())return;clearTimeout(profTimer);profTimer=setTimeout(()=>me("/profile",{method:"PUT",body:JSON.stringify({sleeperUsername:$("user").value.trim(),settings:settingsNow()})}).catch(()=>{}),800)}
 function syncUI(){const on=synced();$("sync_off").hidden=on;$("sync_on").hidden=!on;$("sync_state").textContent=on?"· connected":"";if(!on)$("saved").innerHTML=""}
@@ -642,17 +630,13 @@ async function connectSync(code){
     if(p.sleeperUsername&&!$("user").value.trim()){$("user").value=p.sleeperUsername;store.set("user",p.sleeperUsername)}
     const st=p.settings||{};
     if(!p.updatedAt)saveProfile();
-    else{if(st.scoring)($("scoring").value=st.scoring,store.set("scoring",st.scoring));if(SRC_NAME[st.rankSource])($("rsrc").value=st.rankSource,store.set("rsrc",st.rankSource));if(TV_SRC[st.tvSource])($("tr_vsrc").value=st.tvSource,store.set("tv_src",st.tvSource));if(st.faSource&&$("fa_src").querySelector(`option[value="${st.faSource}"]`))($("fa_src").value=st.faSource,store.set("fa_src",st.faSource));if(typeof st.doubt==="boolean")$("doubt").checked=st.doubt;if(typeof st.debug==="boolean")$("debug").checked=st.debug;if(Array.isArray(st.espnLeagues)){store.set("espn_leagues",st.espnLeagues.join(", "));$("espn_ids").value=store.get("espn_leagues")}}
+    else{if(SCORING_MODES.includes(st.scoringMode))($("scoring").value=st.scoringMode,store.set("scoring_mode",st.scoringMode));if(SRC_NAME[st.rankSource])($("rsrc").value=st.rankSource,store.set("rsrc",st.rankSource));if(TV_SRC[st.tvSource])($("tr_vsrc").value=st.tvSource,store.set("tv_src",st.tvSource));if(st.faSource&&$("fa_src").querySelector(`option[value="${st.faSource}"]`))($("fa_src").value=st.faSource,store.set("fa_src",st.faSource));if(typeof st.doubt==="boolean")$("doubt").checked=st.doubt;if(typeof st.debug==="boolean")$("debug").checked=st.debug;if(Array.isArray(st.espnLeagues)){store.set("espn_leagues",st.espnLeagues.join(", "));$("espn_ids").value=store.get("espn_leagues")}}
     msg.textContent="";syncUI();await loadSaved();
   }catch(e){store.set("acode","");syncUI();msg.innerHTML=`<span class="err">${esc(e.message)}</span>`}
 }
-async function saveBuilds(season,week,collected){
+async function saveBuilds(season,week,source,collected){
   if(!collected.length)return;
-  const src=LISTS.map(([k])=>getSrc(k)).filter(x=>x&&x.week===week);
-  const used=LISTS.filter(([k])=>$("t_"+k).value.trim()).map(([k])=>getSrc(k));
-  const kinds=new Set(used.map(x=>x&&x.week===week?x.source||"boone":"pasted")),source=kinds.size===1?[...kinds][0]:"pasted";
-  const pub=src.length?Math.max(...src.map(x=>x.pub)):null,loaded=source!=="pasted";
-  await me("/builds",{method:"POST",body:JSON.stringify({builds:collected.map(b=>({...b,season,week,scoring:$("scoring").value,rankingsPub:loaded?pub:null,source}))})});
+  await me("/builds",{method:"POST",body:JSON.stringify({builds:collected.map(b=>({...b,season,week,source}))})});
   saveProfile();await loadSaved();
 }
 function buildStatus(b){
@@ -666,11 +650,11 @@ function buildStatus(b){
 async function loadSaved(){
   const el=$("saved");if(!synced()){el.innerHTML="";return}
   try{
-    const {builds}=await me("/builds?limit=30");
-    if(!builds.length){el.innerHTML=`<div class="card"><h2>Saved lineups</h2><div class="ok">Your latest build for each league is saved here when you tap Build my lineups.</div></div>`;return}
-    el.innerHTML=`<h2 style="font-size:17px;margin:20px 0 4px">Saved lineups</h2><div class="ok">Latest build for each league. Building again replaces it.</div>`+builds.map(b=>{const [t,c]=buildStatus(b),r=b.result||{};
+    const {builds}=await me("/builds?limit=60");
+    if(!builds.length){el.innerHTML=`<div class="card"><h2>Saved lineups</h2><div class="ok">Your latest build for each league, rankings source and scoring is saved here when you tap Build my lineups.</div></div>`;return}
+    el.innerHTML=`<h2 style="font-size:17px;margin:20px 0 4px">Saved lineups</h2><div class="ok">Latest build for each league, rankings source and scoring. Building again with the same ones replaces it.</div>`+builds.map(b=>{const [t,c]=buildStatus(b),r=b.result||{};
       return`<details class="sv"><summary><b>${esc(b.leagueName||"League")}</b> <span class="r">· Week ${b.week??"?"}</span><span class="when">Built ${esc(fmtTime(Date.parse(b.createdAt)))}${SRC_NAME[b.source]?" · "+SRC_NAME[b.source]:""}${b.scoring?" · "+(b.scoring==="HALF"?"half-PPR":"PPR"):""}</span><span class="badge ${c}">${esc(t)}</span></summary><div class="body">`+
-        (r.slots||[]).map(x=>`<div class="slot"><span class="s">${esc(x.slot.replace("_"," "))}</span><span>${x.name?esc(x.name)+` <span class="r">${esc(x.pos)} ${esc(x.team)}</span>`:"Nobody eligible"}</span><span class="r">${esc(x.rank||"")}</span></div>`).join("")+
+        (r.slots||[]).map(x=>`<div class="slot"><span class="s">${esc(x.slot.replace("_"," "))}</span><span>${x.name?esc(x.name)+` <span class="r">${esc(x.pos)} ${esc(x.team)}</span>`:"Nobody eligible"}</span><span class="r">${esc(x.rank||"")}${ptsHtml(x.pts)}</span></div>`).join("")+
         `<div class="swaps">${!(r.starts||[]).length&&!(r.sits||[]).length?'<div class="ok">No changes were needed.</div>':(r.starts||[]).map(x=>`<div><span class="start">START</span> ${esc(x)}</div>`).join("")+(r.sits||[]).map(x=>`<div><span class="sit">SIT</span> ${esc(x)}</div>`).join("")}</div>`+
         `<button class="link" data-del="${b.id}">Delete</button></div></details>`}).join("");
   }catch(e){el.innerHTML=`<div class="ok err">Couldn't load saved lineups: ${esc(e.message)}</div>`}
@@ -717,29 +701,6 @@ async function sleeperWeek(){
 }
 // "FA" stands in for an unknown team so the position (and so the position rank) is still read
 const listText=ps=>ps.map(p=>`${p.r}. ${p.n}${p.t||p.pos?` (${p.t||"FA"}${p.pos?", "+p.pos:""})`:""}`).join("\n");
-async function loadRankings(){
-  const st=$("status"),btn=$("loadB"),scoring=$("scoring").value,source=$("rsrc").value;
-  btn.disabled=true;st.textContent=`Loading ${srcLabel(source)} rankings…`;
-  try{
-    const {season,week}=await sleeperWeek();
-    const res=await rankLists(source,"week",season,week,scoring);
-    const fatal=res.find(r=>r.err&&/not Boone/.test(r.err.message));if(fatal)throw fatal.err;
-    if(!res.some(r=>r.ps&&r.ps.length)){
-      if(res.every(r=>r.err))throw res[0].err;
-      st.textContent=`${srcLabel(source)} week ${week} rankings aren't published yet. Your current lists were kept.`;return;
-    }
-    const got=[],missing=[];let latest=0;
-    LISTS.forEach(([k,l],i)=>{const r=res[i];
-      if(!r.ps||!r.ps.length){missing.push(l);return}
-      $("t_"+k).value=listText(r.ps);
-      updCount(k,true);store.set("src_"+k,JSON.stringify({season,week,scoring,source,pub:r.pub}));updCount(k);
-      got.push(l);latest=Math.max(latest,r.pub);
-    });
-    $("bnote").hidden=true;
-    st.textContent=`Loaded ${srcLabel(source)} week ${week} ${scoring==="HALF"?"half-PPR":"PPR"} rankings (updated ${fmtTime(latest)}).`+(missing.length?` Not available yet: ${missing.join(", ")}.`:"");
-  }catch(e){st.innerHTML=`<span class="err">${esc(e.message)}</span>`}
-  finally{btn.disabled=false}
-}
 // One entry per LISTS item: {ps,pub} or {err}. Prefer the Worker (no third-party script in the page, and it saves each version
 // for "expired" checks); JSONP as fallback. Cached for a few minutes so tabs can share a load.
 const RL_CACHE={};
@@ -771,23 +732,6 @@ async function sleeperDirect(season,week,scoring){
       .map((p,i)=>({r:i+1,n:p.n,t:p.t,pos:k==="FLEX"?p.pos:"",pts:Math.round(p.pts*10)/10}));
     return{ps,pub:ps.length?pub||Date.now():0}});
 }
-async function booneStatus(season,week){
-  if(apiBase())try{const r=await fetch(`${apiBase()}/rankings/status?season=${season}&week=${week}`,{cache:"no-store"});if(r.ok){const d=await r.json();return{pub:d.latestPub||0}}}catch(e){}
-  const r=await fetchFP(season,week,"QB","STD");return{pub:r.ps.length?r.pub:0};
-}
-// On open: say so if Boone has posted rankings newer than the loaded lists (only when Boone is the chosen source)
-async function checkBoone(){
-  try{
-    const {season,week}=await sleeperWeek();
-    for(const [k] of LISTS)updCount(k);
-    if($("rsrc").value!=="boone")return;
-    const src=[getSrc("QB"),getSrc("FLEX")].find(x=>x&&(x.source||"boone")==="boone"),r=await booneStatus(season,week);
-    if(!r.pub)return;
-    const behind=!src||src.week!==week||r.pub>src.pub+60e3;
-    if(behind){$("bnote").textContent=`Justin Boone's week ${week} rankings ${src&&src.week===week?"were updated":"are out"} (${fmtTime(r.pub)}). Tap Load to get them.`;$("bnote").hidden=false}
-  }catch(e){}
-}
-
 // ---------- Weather tab ----------
 // Home stadiums: [name, city, lat, lon, roof]. roof: dome (fixed roof, weather irrelevant), ret (retractable), open
 const STADIUMS={
@@ -1044,12 +988,12 @@ $("fa_pos").value=store.get("fa_pos")||"ALL";if(!$("fa_pos").value)$("fa_pos").v
 $("fa_go").onclick=faRun;$("fa_league").onchange=faRender;$("fa_pos").onchange=faRender;
 $("fa_src").onchange=()=>{store.set("fa_src",$("fa_src").value);saveProfile();if(FA)faRun()};
 $("rsrc").value=SRC_NAME[store.get("rsrc")]?store.get("rsrc"):"boone";
-$("rsrc").onchange=()=>{store.set("rsrc",$("rsrc").value);saveProfile();$("bnote").hidden=true;if(getSrc("FLEX")||getSrc("QB"))loadRankings();else checkBoone()};
+$("rsrc").onchange=()=>{store.set("rsrc",$("rsrc").value);saveProfile()};
 
-$("scoring").value=store.get("scoring")==="HALF"?"HALF":"PPR";
-$("scoring").onchange=()=>{store.set("scoring",$("scoring").value);saveProfile();if(getSrc("FLEX"))loadRankings()};
-$("loadB").onclick=loadRankings;
-$("user").value=store.get("user")||"";buildBoxes();checkBoone();syncUI();if(synced())loadSaved();$("newweek").onclick=()=>{for(const [k] of LISTS){$("t_"+k).value="";updCount(k,true)}$("status").textContent="Cleared. Tap Load or paste this week's lists."};$("doubt").checked=store.get("doubt")==="1";$("debug").checked=store.get("debug")==="1";
+const SCORING_MODES=["AUTO","PPR","HALF"];
+$("scoring").value=SCORING_MODES.includes(store.get("scoring_mode"))?store.get("scoring_mode"):"AUTO";
+$("scoring").onchange=()=>{store.set("scoring_mode",$("scoring").value);saveProfile()};
+$("user").value=store.get("user")||"";syncUI();sleeperWeek().catch(()=>{}).then(()=>{if(synced())loadSaved()});$("doubt").checked=store.get("doubt")==="1";$("debug").checked=store.get("debug")==="1";
 const TABS=["lineup","fa","weather","trade"];
 function showTab(t){if(!TABS.includes(t))t="lineup";
   for(const k of TABS){$("p_"+k).hidden=k!==t;$("tb_"+k).setAttribute("aria-selected",String(k===t))}
