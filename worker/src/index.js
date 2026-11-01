@@ -5,6 +5,7 @@
 //   GET  /rankings?season&week&scoring&source&kind
 //                                           QB, FLEX, K, DEF lists (scoring = PPR | HALF; defaults to Sleeper's current week).
 //                                           source = boone (default) | ecr (FantasyPros consensus); kind = week (default) | ros (consensus only)
+//   GET  /trade-values/fantasycalc?ppr&qbs&teams   FantasyCalc redraft values for a league format, rescaled so the top player is 100
 //   GET  /rankings/status?season&week       Newest publish time of Boone's rankings for that week
 //   GET  /health
 // Private (header "Authorization: Bearer <ACCESS_CODE>"):
@@ -18,6 +19,7 @@
 // Bindings: DB (D1). Secrets: ACCESS_CODE; ESPN_S2 and ESPN_SWID (ESPN login cookies, for private leagues).
 
 import { loadTradeValues } from "./tradevalues.js";
+import { loadFantasyCalc, fcFormat } from "./fantasycalc.js";
 import { fetchList, sleeperWeek, appLists, SOURCES, KINDS } from "./rankings.js";
 import * as store from "./db.js";
 import { fetchLeague } from "./espn.js";
@@ -45,6 +47,20 @@ async function tradeValues(env, fresh) {
     return data;
   } catch (e) {
     if (tvMemo) return { ...tvMemo.data, stale: true, staleReason: e.message };
+    throw new HttpError(502, e.message);
+  }
+}
+
+const fcMemo = new Map(); // format key -> { ts, data }
+async function fantasyCalc(q) {
+  const fmt = fcFormat(q), key = `${fmt.ppr}|${fmt.qbs}|${fmt.teams}`, m = fcMemo.get(key);
+  if (m && Date.now() - m.ts < TV_CACHE_MS) return m.data;
+  try {
+    const data = await loadFantasyCalc(fmt);
+    fcMemo.set(key, { ts: Date.now(), data });
+    return data;
+  } catch (e) {
+    if (m) return { ...m.data, stale: true, staleReason: e.message };
     throw new HttpError(502, e.message);
   }
 }
@@ -105,6 +121,7 @@ async function handle(request, env) {
 
   if (path === "/health") return json({ ok: true, db: !!env.DB, accessCode: !!env.ACCESS_CODE });
   if (path === "/trade-values" && m === "GET") return json(await tradeValues(env, url.searchParams.has("refresh")), 200, "public, max-age=300");
+  if (path === "/trade-values/fantasycalc" && m === "GET") return json(await fantasyCalc(Object.fromEntries(url.searchParams)), 200, "public, max-age=1800");
   if (path === "/rankings" && m === "GET") {
     const { season, week } = await weekParams(url), scoring = url.searchParams.get("scoring") === "HALF" ? "HALF" : "PPR";
     const source = url.searchParams.get("source") || "boone", kind = url.searchParams.get("kind") || "week";

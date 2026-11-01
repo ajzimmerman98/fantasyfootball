@@ -110,7 +110,7 @@ select.full{width:100%;height:44px}
 <div id="out"></div>
 <button class="link" id="refresh">Refresh player data</button>
 <div id="saved"></div>
-<small>Sleeper's API is read-only, so make the swaps in the Sleeper app. Unranked players are usually on bye. TV = Boone's rest-of-season trade value for that league's format.</small>
+<small>Sleeper's API is read-only, so make the swaps in the Sleeper app. Unranked players are usually on bye. TV = rest-of-season trade value for that league's format, from the source picked on the Trades tab.</small>
 </section>
 <section class="panel" id="p_fa" role="tabpanel" aria-labelledby="tb_fa" hidden>
 <label for="fa_src">Rank free agents by</label>
@@ -124,7 +124,8 @@ select.full{width:100%;height:44px}
 <small>Free agents are players on no roster in that league (waiver players included). Consensus is the FantasyPros average of all its experts. Rostered % is the share of Yahoo, ESPN and other leagues he's on, from FantasyPros; adds are Sleeper adds in the last 24 hours. Each league uses its own scoring (standard-scoring leagues use half-PPR lists).</small>
 </section>
 <section class="panel" id="p_trade" role="tabpanel" aria-labelledby="tb_trade" hidden>
-<button id="tr_go">Load leagues &amp; trade values</button>
+<label for="tr_vsrc">Trade values</label><select id="tr_vsrc" class="full"><option value="boone">Boone's chart</option><option value="fc">FantasyCalc (based on real trades)</option><option value="avg">Average of both</option></select>
+<div class="loadrow"><button id="tr_go">Load leagues &amp; trade values</button></div>
 <div id="tr_status" class="status"></div>
 <div id="tr_ui" hidden>
 <label for="tr_league">League</label><select id="tr_league" class="full"></select>
@@ -136,7 +137,7 @@ select.full{width:100%;height:44px}
 <div class="card"><h2>You get</h2><div id="tr_theirs"></div></div>
 <div id="tr_sum" class="tsum"></div>
 </div>
-<small id="tr_src">Values from Justin Boone's rest-of-season trade value charts on Yahoo. Each league uses its own format from Sleeper: PPR or half-PPR, and 1QB or superflex.</small>
+<small id="tr_src">Boone's values come from Justin Boone's rest-of-season trade value charts on Yahoo. FantasyCalc's come from real fantasy trades, rescaled so its top player is 100 (close to Boone's scale). Each league uses its own format: PPR, half-PPR or standard, 1QB or superflex, and (for FantasyCalc) its number of teams. The same choice sets the TV numbers on the Lineup tab.</small>
 </section>
 <section class="panel" id="p_weather" role="tabpanel" aria-labelledby="tb_weather" hidden>
 <div class="row"><input id="w_starters" type="checkbox" checked><label for="w_starters" style="margin:0;color:var(--text)">Starters only</label></div>
@@ -304,7 +305,7 @@ function build(slots,cands){
 const rankTxt=c=>c.rp===Infinity?"--":(c.pr?c.pr+" · ":"")+"#"+c.rp;
 function render(lg,roster,cur,players,ranks,opts){
   const {starters,src}=cur,fmt=leagueFormat(lg);
-  const tvTag=c=>{const v=tradeValue(players[c.id],fmt);return v==null?"":` <span class="tv">TV ${v}</span>`};
+  const tvTag=c=>{const v=tradeValue(players[c.id],fmt,c.id);return v==null?"":` <span class="tv">TV ${v}</span>`};
   const slots=lg.roster_positions.filter(p=>!NON.has(p));
   const cands=candidates(roster,starters,players,ranks,opts.allowDoubt),line=build(slots,cands),byId=Object.fromEntries(cands.map(c=>[c.id,c]));
   let h=`<div class="card"><h2>${esc(lg.name)}</h2>`;
@@ -374,7 +375,7 @@ async function addEspn(season,myId,leagues,rosters,matchups,players,st){
   for(const L of d.leagues){
     const names={};
     const rs=L.teams.map(t=>{const owner=t.mine?myId:t.owner_id;names[owner]=t.team_name+(t.owner_name?` (${t.owner_name})`:"");return{roster_id:t.roster_id,owner_id:owner,players:t.players,starters:t.starters,reserve:t.reserve,_espn:true}});
-    leagues.push({league_id:L.league_id,name:L.name+" · ESPN",provider:"espn",roster_positions:L.roster_positions,scoring_settings:L.scoring_settings,_names:names,_players:L.players});
+    leagues.push({league_id:L.league_id,name:L.name+" · ESPN",provider:"espn",total_rosters:L.teams.length,roster_positions:L.roster_positions,scoring_settings:L.scoring_settings,_names:names,_players:L.players});
     rosters.push(rs);matchups.push(null);Object.assign(players,L.players);
   }
   return d.errors||[];
@@ -388,7 +389,8 @@ async function run(force){
   if(!Object.keys(ranks).length){st.innerHTML='<span class="err">No rankings found. Paste at least one list first.</span>';return}
   $("go").disabled=true;
   try{
-    const [{state,week,leagues,players,mineAll,curAll,espnErrors}]=await Promise.all([loadSleeper(user,force,st),apiBase()?ensureTV().catch(()=>null):null]);
+    const {state,week,leagues,players,mineAll,curAll,espnErrors}=await loadSleeper(user,force,st);
+    if(apiBase())await ensureValues(leagues.filter((lg,i)=>mineAll[i]));
     st.textContent=`Season ${state.season}, week ${week}. ${leagues.length} league(s).`+espnErrors.map(e=>` ESPN ${e.leagueId}: ${e.error}`).join("");
     const opts={allowDoubt:$("doubt").checked,debug:$("debug").checked,collect:[]};
     leagues.forEach((lg,i)=>{
@@ -418,19 +420,68 @@ async function ensureTV(force){
   store.set("tv_cache",JSON.stringify({ts:Date.now(),data}));
   TV={...indexTV(data),ts:Date.now()};return TV;
 }
-// Boone has HALF and PPR columns (standard scoring uses HALF, the closest) and 1QB / 2QB for quarterbacks
+// Boone has HALF and PPR columns (standard scoring uses HALF, the closest) and 1QB / 2QB for quarterbacks.
+// FantasyCalc takes the exact format: ppr 0 / 0.5 / 1, 1 or 2 QBs, and the number of teams.
 function leagueFormat(lg){
   const rec=+(lg.scoring_settings||{}).rec||0,rp=lg.roster_positions||[];
-  return{sc:rec>=0.75?"PPR":"HALF",qb:rp.includes("SUPER_FLEX")||rp.filter(x=>x==="QB").length>1?"2QB":"1QB"};
+  return{sc:rec>=0.75?"PPR":"HALF",qb:rp.includes("SUPER_FLEX")||rp.filter(x=>x==="QB").length>1?"2QB":"1QB",ppr:rec>=0.75?1:rec>=0.25?0.5:0,teams:+lg.total_rosters||12};
 }
 const fmtLabel=f=>`${f.sc==="PPR"?"PPR":"Half-PPR"} · ${f.qb==="2QB"?"Superflex":"1QB"}`;
-function tradeValue(p,fmt){
-  if(!TV||!p)return null;const t=TV.idx[p.p];if(!t)return null;
+const TV_SRC={boone:"Boone's",fc:"FantasyCalc",avg:"Boone + FantasyCalc average"};
+const tvSrc=()=>TV_SRC[$("tr_vsrc").value]?$("tr_vsrc").value:"boone";
+const tvName=()=>TV_SRC[tvSrc()];
+// Exact name in the position's index, then a close fuzzy match (nicknames, suffixes)
+function matchIdx(t,p){
+  if(!t||!p)return null;
   const keys=[norm(p.n||""),norm(`${p.f||""} ${p.l||""}`)].filter(Boolean);
-  let v=null;for(const k of keys)if(k in t){v=t[k];break}
-  if(!v)for(const k of keys){let best=null,bs=0;for(const n in t){const x=sim(k,n);if(x>bs){bs=x;best=n}}if(bs>=0.9){v=t[best];break}}
-  if(!v)return null;const val=p.p==="QB"?v[fmt.qb]:v[fmt.sc];
+  for(const k of keys)if(k in t)return t[k];
+  for(const k of keys){let best=null,bs=0;for(const n in t){const x=sim(k,n);if(x>bs){bs=x;best=n}}if(bs>=0.9)return t[best]}
+  return null;
+}
+function tvBoone(p,fmt){
+  if(!TV||!p)return null;const v=matchIdx(TV.idx[p.p],p);if(!v)return null;
+  const val=p.p==="QB"?v[fmt.qb]:v[fmt.sc];
   return typeof val==="number"?val:null;
+}
+// ---- FantasyCalc (via the Worker), one value set per league format ----
+const FC={}; // format key -> {ts, data, sid:{sleeperId:value}, idx:{pos:{normName:value}}}
+const fcKey=f=>`${f.ppr}|${f.qb==="2QB"?2:1}|${f.teams}`;
+function indexFC(data){
+  const sid={},idx={};
+  for(const p of data.players||[]){if(p.sid)sid[p.sid]=p.value;const t=idx[p.pos]||(idx[p.pos]={}),k=norm(p.name);if(k&&!(k in t))t[k]=p.value}
+  return{data,sid,idx};
+}
+async function ensureFC(fmt){
+  const k=fcKey(fmt);
+  if(FC[k]&&Date.now()-FC[k].ts<6*3600e3)return FC[k];
+  try{const c=JSON.parse(store.get("fc_"+k)||"null");if(c&&Date.now()-c.ts<6*3600e3)return FC[k]={...indexFC(c.data),ts:c.ts}}catch(e){}
+  if(!apiBase())throw new Error("FantasyCalc values need the Cloudflare Worker.");
+  let r;try{r=await fetch(`${apiBase()}/trade-values/fantasycalc?ppr=${fmt.ppr}&qbs=${fmt.qb==="2QB"?2:1}&teams=${fmt.teams}`,{cache:"no-store"})}catch(e){throw new Error("Couldn't reach the trade values service.")}
+  const data=await r.json().catch(()=>({}));
+  if(!r.ok||!data.players)throw new Error(data.error||`FantasyCalc error ${r.status}`);
+  store.set("fc_"+k,JSON.stringify({ts:Date.now(),data}));
+  return FC[k]={...indexFC(data),ts:Date.now()};
+}
+function tvFC(p,fmt,id){
+  const d=FC[fcKey(fmt)];if(!d||!p)return null;
+  if(id&&d.sid[id]!=null)return d.sid[id]; // Sleeper players match exactly by id
+  return matchIdx(d.idx[p.p],p);
+}
+// The chosen source's value for a player in a league format. id = Sleeper player id, when known.
+function tradeValue(p,fmt,id){
+  const s=tvSrc();
+  if(s==="boone")return tvBoone(p,fmt);
+  if(s==="fc")return tvFC(p,fmt,id);
+  const a=tvBoone(p,fmt),b=tvFC(p,fmt,id);
+  return a==null?b:b==null?a:Math.round((a+b)/2);
+}
+// Load whatever the chosen source needs for these leagues. Returns a list of problems (empty when all loaded).
+async function ensureValues(leagues,force){
+  const s=tvSrc(),errs=[];
+  if(s!=="fc")await ensureTV(force).catch(e=>errs.push("Boone: "+e.message));
+  if(s!=="boone"){const fmts={};for(const lg of leagues)fmts[fcKey(leagueFormat(lg))]=leagueFormat(lg);
+    await Promise.all(Object.values(fmts).map(f=>ensureFC(f).catch(e=>errs.push("FantasyCalc: "+e.message))))}
+  return[...new Set(errs)];
 }
 
 let TR=null; // trades tab state
@@ -439,18 +490,26 @@ async function trRun(){
   if(!user){st.textContent="Enter your Sleeper username.";return}
   $("tr_go").disabled=true;
   try{
-    const [sl]=await Promise.all([loadSleeper(user,false,st),ensureTV()]);
+    const sl=await loadSleeper(user,false,st);
+    st.textContent=`Loading ${tvName()} values…`;
+    const verr=await ensureValues(sl.leagues.filter((lg,i)=>sl.mineAll[i]));
+    if(tvSrc()!=="avg"&&verr.length)throw new Error(verr[0].replace(/^[^:]+: /,""));
     TR={sl,users:{},give:new Set(),get:new Set()};
     const opts=sl.leagues.map((lg,i)=>sl.mineAll[i]?`<option value="${i}">${esc(lg.name)}</option>`:"").join("");
     if(!opts)throw new Error("No leagues with your roster found.");
     $("tr_league").innerHTML=opts;
     const last=store.get("tr_league");if(last&&$("tr_league").querySelector(`option[value="${last}"]`))$("tr_league").value=last;
     $("tr_ui").hidden=false;
-    const d=TV.data,stale=d.stale?` (couldn't refresh: ${d.staleReason})`:"",miss=Object.keys(d.charts).length<4?` Missing: ${["QB","RB","WR","TE"].filter(x=>!d.charts[x]).join(", ")}.`:"";
-    st.textContent=`Boone's week ${d.week} trade values loaded${stale}.${miss}`;
+    st.textContent=tvStatus(verr);
     await trLeague();
   }catch(e){st.innerHTML=`<span class="err">${esc(e.message)}</span>`}
   $("tr_go").disabled=false;
+}
+function tvStatus(errs){
+  const parts=[];
+  if(tvSrc()!=="fc"&&TV){const d=TV.data,stale=d.stale?` (couldn't refresh: ${d.staleReason})`:"",miss=Object.keys(d.charts).length<4?` Missing: ${["QB","RB","WR","TE"].filter(x=>!d.charts[x]).join(", ")}.`:"";parts.push(`Boone's week ${d.week} trade values${stale}.${miss}`)}
+  if(tvSrc()!=="boone"&&Object.keys(FC).length){const t=Math.max(...Object.values(FC).map(x=>Date.parse(x.data.fetchedAt)||x.ts));parts.push(`FantasyCalc values (updated ${fmtTime(t)}).`)}
+  return parts.join(" ")+(errs.length?" "+errs.join(" "):"");
 }
 async function trLeague(){
   const i=+$("tr_league").value,{sl}=TR,lg=sl.leagues[i];store.set("tr_league",String(i));
@@ -459,12 +518,13 @@ async function trLeague(){
   const names=Object.fromEntries(TR.users[lg.league_id].map(u=>[u.user_id,u.metadata?.team_name||u.display_name||"Team"]));
   const others=sl.rosters[i].filter(r=>r.owner_id!==sl.userId);
   $("tr_team").innerHTML=others.map(r=>`<option value="${r.roster_id}">${esc(names[r.owner_id]||"Team "+r.roster_id)}</option>`).join("");
-  $("tr_fmt").textContent=`Values for this league: ${fmtLabel(leagueFormat(lg))}`;
+  const f=leagueFormat(lg);
+  $("tr_fmt").textContent=`${tvName()} values for this league: ${fmtLabel(f)}${tvSrc()!=="boone"?` · ${f.teams} teams`:""}`;
   trRender();
 }
 function trRows(roster,set,side,fmt){
   const {players}=TR.sl;
-  const rows=(roster?.players||[]).map(id=>{const p=players[id];return p&&{id,p,v:tradeValue(p,fmt)}}).filter(Boolean)
+  const rows=(roster?.players||[]).map(id=>{const p=players[id];return p&&{id,p,v:tradeValue(p,fmt,id)}}).filter(Boolean)
     .sort((a,b)=>(b.v??-1)-(a.v??-1)||(a.p.n||"").localeCompare(b.p.n||""));
   if(!rows.length)return'<div class="ok">No players.</div>';
   return rows.map(({id,p,v})=>`<label class="tp${v==null?" off":""}"><input type="checkbox" data-side="${side}" data-id="${esc(id)}"${set.has(id)?" checked":""}><span>${esc(p.n||`${p.f} ${p.l}`)} <span class="r">${esc(p.p)} ${esc(p.t||"FA")}</span></span><b>${v==null?"—":v}</b></label>`).join("");
@@ -478,7 +538,7 @@ function trRender(){
 }
 function trSum(){
   const i=+$("tr_league").value,{sl}=TR,fmt=leagueFormat(sl.leagues[i]);
-  const tot=set=>[...set].reduce((a,id)=>a+(tradeValue(sl.players[id],fmt)??0),0);
+  const tot=set=>[...set].reduce((a,id)=>a+(tradeValue(sl.players[id],fmt,id)??0),0);
   const g=tot(TR.give),r=tot(TR.get),d=r-g,el=$("tr_sum");
   if(!TR.give.size&&!TR.get.size){el.innerHTML='<span class="ok">Tick players on both sides to compare.</span>';return}
   const verdict=!TR.give.size||!TR.get.size?"Pick players on both sides.":d>0?`<span class="up">You gain ${d}</span>`:d<0?`<span class="down">You give up ${-d} more</span>`:"Even trade";
@@ -486,6 +546,9 @@ function trSum(){
   el.innerHTML=`You give <b>${g}</b> · You get <b>${r}</b><div class="big">${verdict}</div>${note}`;
 }
 $("tr_go").onclick=trRun;
+$("tr_vsrc").value=TV_SRC[store.get("tv_src")]?store.get("tv_src"):"boone";
+$("tr_vsrc").onchange=async()=>{store.set("tv_src",$("tr_vsrc").value);saveProfile();if(!TR)return;const st=$("tr_status");st.textContent=`Loading ${tvName()} values…`;
+  const errs=await ensureValues(TR.sl.leagues.filter((lg,i)=>TR.sl.mineAll[i]));st.textContent=tvStatus(errs);$("tr_ideas").innerHTML="";await trLeague()};
 $("tr_league").onchange=()=>trLeague().catch(e=>$("tr_status").innerHTML=`<span class="err">${esc(e.message)}</span>`);
 $("tr_team").onchange=()=>{TR.get.clear();trRender()};
 
@@ -503,7 +566,7 @@ function generateTrades(i,scope){
   const {sl}=TR,lg=sl.leagues[i],fmt=leagueFormat(lg),slots=(lg.roster_positions||[]).filter(s=>!NON.has(s)&&s!=="K"&&s!=="DEF");
   const active=r=>{const out=new Set([...(r.reserve||[]),...(r.taxi||[])]);return(r.players||[]).filter(id=>!out.has(id))};
   const val={},pos={};
-  for(const r of sl.rosters[i])for(const id of r.players||[]){const p=sl.players[id];if(!p)continue;pos[id]=p.p;val[id]=tradeValue(p,fmt)??0}
+  for(const r of sl.rosters[i])for(const id of r.players||[]){const p=sl.players[id];if(!p)continue;pos[id]=p.p;val[id]=tradeValue(p,fmt,id)??0}
   const me=sl.mineAll[i],mine=active(me),base=lineupStrength(mine,slots,val,pos);
   // Only players with value can move; cap each side at its 18 most valuable to keep the search quick
   const top=ids=>ids.filter(id=>val[id]>0).sort((a,b)=>val[b]-val[a]).slice(0,18);
@@ -541,11 +604,11 @@ function trGenerate(){
   if(!TR)return;
   const i=+$("tr_league").value,scope=$("tr_scope").value,{sl}=TR,out=$("tr_ideas");store.set("tr_scope",scope);
   const names=Object.fromEntries((TR.users[sl.leagues[i].league_id]||[]).map(u=>[u.user_id,u.metadata?.team_name||u.display_name||"Team"]));
-  const fmt=leagueFormat(sl.leagues[i]),nm=id=>{const p=sl.players[id];return`${esc(p.n||`${p.f} ${p.l}`)} <span class="r">${esc(p.p)} ${esc(p.t||"FA")}</span> <b class="tv">${tradeValue(p,fmt)??0}</b>`};
+  const fmt=leagueFormat(sl.leagues[i]),nm=id=>{const p=sl.players[id];return`${esc(p.n||`${p.f} ${p.l}`)} <span class="r">${esc(p.p)} ${esc(p.t||"FA")}</span> <b class="tv">${tradeValue(p,fmt,id)??0}</b>`};
   const {picked,base}=generateTrades(i,scope);
   if(!picked.length){out.innerHTML=`<div class="idea"><span class="ok">No trades found that improve your starting lineup without weakening theirs${scope==="one"?" with this team. Try All teams":""}.</span></div>`;return}
   TR.ideas=picked;
-  out.innerHTML=`<div class="ok" style="margin-top:10px">Your starting lineup is worth ${base} by Boone's values. Ideas that raise it without weakening the other team's starters, fair by Boone's chart:</div>`+
+  out.innerHTML=`<div class="ok" style="margin-top:10px">Your starting lineup is worth ${base} by ${tvSrc()==="avg"?"the average":tvName()} values. Ideas that raise it without weakening the other team's starters, fair by those values:</div>`+
     picked.map((x,k)=>{const who=names[x.team.owner_id]||"Team "+x.team.roster_id,drop=x.give.length>x.get.length?" They'd need to free a roster spot.":x.get.length>x.give.length?" You'd need to free a roster spot.":"";
       return`<div class="idea"><h3>${scope==="all"?esc(who):"Trade idea "+(k+1)}<span>Lineup +${x.myGain}</span></h3>`+
         `<div class="side"><span class="lbl">You give</span>${x.give.map(nm).join(", ")}</div><div class="side"><span class="lbl">You get</span>${x.get.map(nm).join(", ")}</div>`+
@@ -566,7 +629,7 @@ async function me(path,opt={}){
   if(!r.ok)throw new Error(d.error||`Sync error ${r.status}`);
   return d;
 }
-const settingsNow=()=>({scoring:$("scoring").value,rankSource:$("rsrc").value,faSource:$("fa_src").value,doubt:$("doubt").checked,debug:$("debug").checked,espnLeagues:espnIds()});
+const settingsNow=()=>({scoring:$("scoring").value,rankSource:$("rsrc").value,faSource:$("fa_src").value,tvSource:$("tr_vsrc").value,doubt:$("doubt").checked,debug:$("debug").checked,espnLeagues:espnIds()});
 let profTimer=null;
 function saveProfile(){if(!synced())return;clearTimeout(profTimer);profTimer=setTimeout(()=>me("/profile",{method:"PUT",body:JSON.stringify({sleeperUsername:$("user").value.trim(),settings:settingsNow()})}).catch(()=>{}),800)}
 function syncUI(){const on=synced();$("sync_off").hidden=on;$("sync_on").hidden=!on;$("sync_state").textContent=on?"· connected":"";if(!on)$("saved").innerHTML=""}
@@ -578,7 +641,7 @@ async function connectSync(code){
     if(p.sleeperUsername&&!$("user").value.trim()){$("user").value=p.sleeperUsername;store.set("user",p.sleeperUsername)}
     const st=p.settings||{};
     if(!p.updatedAt)saveProfile();
-    else{if(st.scoring)($("scoring").value=st.scoring,store.set("scoring",st.scoring));if(SRC_NAME[st.rankSource])($("rsrc").value=st.rankSource,store.set("rsrc",st.rankSource));if(st.faSource&&$("fa_src").querySelector(`option[value="${st.faSource}"]`))($("fa_src").value=st.faSource,store.set("fa_src",st.faSource));if(typeof st.doubt==="boolean")$("doubt").checked=st.doubt;if(typeof st.debug==="boolean")$("debug").checked=st.debug;if(Array.isArray(st.espnLeagues)){store.set("espn_leagues",st.espnLeagues.join(", "));$("espn_ids").value=store.get("espn_leagues")}}
+    else{if(st.scoring)($("scoring").value=st.scoring,store.set("scoring",st.scoring));if(SRC_NAME[st.rankSource])($("rsrc").value=st.rankSource,store.set("rsrc",st.rankSource));if(TV_SRC[st.tvSource])($("tr_vsrc").value=st.tvSource,store.set("tv_src",st.tvSource));if(st.faSource&&$("fa_src").querySelector(`option[value="${st.faSource}"]`))($("fa_src").value=st.faSource,store.set("fa_src",st.faSource));if(typeof st.doubt==="boolean")$("doubt").checked=st.doubt;if(typeof st.debug==="boolean")$("debug").checked=st.debug;if(Array.isArray(st.espnLeagues)){store.set("espn_leagues",st.espnLeagues.join(", "));$("espn_ids").value=store.get("espn_leagues")}}
     msg.textContent="";syncUI();await loadSaved();
   }catch(e){store.set("acode","");syncUI();msg.innerHTML=`<span class="err">${esc(e.message)}</span>`}
 }
