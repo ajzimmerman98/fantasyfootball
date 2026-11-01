@@ -33,11 +33,15 @@ button:disabled{opacity:.6}
 .err{color:var(--bad)}
 .box{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px 10px;margin:8px 0}
 .bh{display:flex;align-items:center;gap:8px;margin-bottom:6px}
-.bh b{font-size:15px}.cnt{flex:1;font-size:13px;color:var(--good)}
+.bh b{font-size:15px;flex:1}.cnt{font-size:12px;color:var(--good);margin:-2px 0 6px}.cnt:empty{display:none}
 .mini{width:auto;padding:6px 12px;font-size:14px;border-radius:8px;font-weight:600}
 .ghost{background:none;color:var(--muted);border:1px solid var(--line);font-weight:400}
 .stale{color:var(--warn)!important}.bn{margin-top:10px;padding-top:8px;border-top:2px solid var(--line)}.bn h3{font-size:13px;color:var(--muted);margin:0 0 4px;font-weight:600}
 .box textarea{min-height:0;font-size:13px;padding:8px}
+.loadrow{display:flex;gap:8px;margin-top:14px}.loadrow button{flex:1}
+select{padding:0 10px;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--text);font-size:15px}
+.bnote{background:var(--card);border:1px solid var(--warn);color:var(--text);border-radius:10px;padding:8px 10px;margin:10px 0 0;font-size:14px}
+.cnt.src{color:var(--muted)}
 small{color:var(--muted);display:block;margin-top:16px;font-size:12px}
 .tabs{display:flex;gap:4px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:4px;margin:12px 0 4px;position:sticky;top:env(safe-area-inset-top);z-index:5}
 .tabs button{flex:1;width:auto;padding:9px 4px;font-size:15px;border-radius:9px;background:none;color:var(--muted);font-weight:600}
@@ -70,7 +74,9 @@ small{color:var(--muted);display:block;margin-top:16px;font-size:12px}
 <button role="tab" id="tb_weather" data-tab="weather" aria-controls="p_weather">Weather</button>
 </nav>
 <section class="panel" id="p_lineup" role="tabpanel" aria-labelledby="tb_lineup">
-<label>Open each Boone page, copy the list, then tap Paste.</label>
+<div class="loadrow"><button id="loadB">Load Boone's rankings</button><select id="scoring" aria-label="Scoring"><option value="PPR">PPR</option><option value="HALF">Half-PPR</option></select></div>
+<div id="bnote" class="bnote" hidden></div>
+<label>Rankings lists (filled by Load, or paste from Boone's article)</label>
 <div id="boxes"></div>
 <button class="link" id="newweek">Clear all lists (new week)</button>
 <div class="row"><input id="doubt" type="checkbox"><label for="doubt" style="margin:0;color:var(--text)">Allow Doubtful players</label></div>
@@ -119,29 +125,53 @@ function clean(line,sec){
   if(sec==="DEF")s=s.replace(/\s*\b(d\/st|dst|defense)\b/i,"");
   return s.trim()||null;
 }
-function junk(n){return !/[a-z]/i.test(n)||n.length<3||/^[A-Z]{2,4}$/.test(n)||/^(vs\.?|bye|out|ir|q|d)$/i.test(n)||/^(vs\.?|@|at)\s/i.test(n)}
+function junk(n){return !/[a-z]/i.test(n)||n.length<3||/^tier\s*\d+$/i.test(n)||/^[A-Z]{2,4}$/.test(n)||/^(vs\.?|bye|out|ir|q|d)$/i.test(n)||/^(vs\.?|@|at)\s/i.test(n)}
+// Team info parsed from lines like "1. Josh Allen (BUF)" lets lookup() tell apart players with the same or similar names
+const META=new WeakMap();
+function lineTeam(raw){
+  const ok=t=>{t=teamKey(t);return t in STADIUMS?t:null};
+  const m=raw.match(/\(([A-Z]{2,3})\b/);if(m&&ok(m[1]))return ok(m[1]);
+  for(const x of raw.split("\t").slice(1))if(ok(x.trim()))return ok(x.trim());
+  return null;
+}
 function parseList(text,sec){
-  const r={};let c=0;
+  const r={},team={},nt={},byTeam={};let c=0;
   for(const raw of (text||"").split(/\r?\n/)){
     const name=clean(raw,sec);
     if(!name||junk(name))continue;
-    const k=norm(name);if(k&&!(k in r))r[k]=++c;
+    const k=norm(name);if(!k)continue;
+    const t=lineTeam(raw),dup=k in r;
+    if(dup&&!t)continue;
+    // Use the rank written on the line ("41. Name" or "41<tab>Name") when present, so displayed ranks match the source
+    const num=+((raw.match(/^\s*#?(\d{1,3})(?:[.):\-\s]|$)/)||[])[1]||0);
+    const rank=c=num>c?num:c+1;
+    if(!dup){r[k]=rank;if(t)team[k]=t}
+    if(t){if(!(k+"|"+t in nt))nt[k+"|"+t]=rank;if(!(t in byTeam))byTeam[t]=rank}
   }
+  META.set(r,{team,nt,byTeam});
   return r;
 }
-const LISTS=[["QB","Quarterbacks"],["FLEX","FLEX (covers RB, WR, TE)"]];
+const LISTS=[["QB","Quarterbacks"],["FLEX","FLEX (RB / WR / TE)"],["K","Kickers"],["DEF","Defenses"]];
 function ago(ts){const m=Math.round((Date.now()-ts)/60000);return m<1?"just now":m<60?m+"m ago":m<1440?Math.round(m/60)+"h ago":Math.round(m/1440)+"d ago"}
+const fmtTime=ms=>new Date(ms).toLocaleString([],{weekday:"short",hour:"numeric",minute:"2-digit"});
+function getSrc(k){try{return JSON.parse(store.get("src_"+k)||"null")}catch(e){return null}}
+// stamp=true means the user changed the text by hand, so it no longer matches a loaded source
 function updCount(k,stamp){
   const v=$("t_"+k).value;
   const n=Object.keys(parseList(v,k)).length;
   store.set("list_"+k,v);
-  if(stamp)store.set("ts_"+k,v.trim()?String(Date.now()):"");
-  const ts=+store.get("ts_"+k)||0,el=$("c_"+k);
-  el.textContent=n?`${n} players${ts?" · "+ago(ts):""}`:"";
-  el.classList.toggle("stale",!!ts&&Date.now()-ts>3*86400e3);
+  if(stamp){store.set("ts_"+k,v.trim()?String(Date.now()):"");store.set("src_"+k,"")}
+  const ts=+store.get("ts_"+k)||0,el=$("c_"+k),src=getSrc(k),cw=+store.get("cur_week")||0;
+  if(n&&src){
+    el.textContent=`${n} players · Boone week ${src.week}${k==="FLEX"?" "+(src.scoring==="HALF"?"half-PPR":"PPR"):""} · updated ${fmtTime(src.pub)}`;
+    el.classList.add("src");el.classList.toggle("stale",!!cw&&src.week<cw);
+  }else{
+    el.textContent=n?`${n} players${ts?" · "+ago(ts):""}`:"";
+    el.classList.remove("src");el.classList.toggle("stale",!!ts&&Date.now()-ts>3*86400e3);
+  }
 }
 function buildBoxes(){
-  $("boxes").innerHTML=LISTS.map(([k,l])=>`<div class="box"><div class="bh"><b>${l}</b><span class="cnt" id="c_${k}"></span><button class="mini" data-p="${k}">Paste</button><button class="mini ghost" data-c="${k}">Clear</button></div><textarea id="t_${k}" rows="2" placeholder="Tap Paste, or paste here"></textarea></div>`).join("");
+  $("boxes").innerHTML=LISTS.map(([k,l])=>`<div class="box"><div class="bh"><b>${l}</b><button class="mini" data-p="${k}">Paste</button><button class="mini ghost" data-c="${k}">Clear</button></div><div class="cnt" id="c_${k}"></div><textarea id="t_${k}" rows="2" placeholder="Tap Paste, or paste here"></textarea></div>`).join("");
   for(const [k] of LISTS){const t=$("t_"+k);t.value=store.get("list_"+k)||"";updCount(k);t.addEventListener("input",()=>updCount(k,true))}
   $("boxes").addEventListener("click",async e=>{
     const p=e.target.dataset.p,c=e.target.dataset.c;
@@ -152,15 +182,21 @@ function buildBoxes(){
 function collect(){const r={};for(const [k] of LISTS){const o=parseList($("t_"+k).value,k);if(Object.keys(o).length)r[k]=o}return r}
 function lookup(table,p){
   if(!table)return null;
+  const meta=META.get(table)||{},team=teamKey(p.t);
   if(p.p==="DEF"){
+    if(team&&meta.byTeam&&team in meta.byTeam)return meta.byTeam[team];
     const mas=norm(p.l||""),city=norm(p.f||"");
     for(const k of [`${city} ${mas}`.trim(),mas])if(k in table)return table[k];
     for(const k in table)if(mas&&k.endsWith(mas))return table[k];
     return null;
   }
   const keys=[norm(p.n||""),norm(`${p.f||""} ${p.l||""}`)].filter(Boolean);
-  for(const k of keys)if(k in table)return table[k];
-  for(const k of keys){let best=null,bs=0;for(const t in table){const s=sim(k,t);if(s>bs){bs=s;best=t}}if(bs>=0.88)return table[best]}
+  if(team&&meta.nt)for(const k of keys)if(k+"|"+team in meta.nt)return meta.nt[k+"|"+team];
+  // When both the list and Sleeper give a team, they must agree (two players can share a name)
+  const wrongTeam=t=>team&&meta.team&&meta.team[t]&&meta.team[t]!==team;
+  for(const k of keys)if(k in table&&!wrongTeam(k))return table[k];
+  // Fuzzy match for nicknames and suffixes
+  for(const k of keys){let best=null,bs=0;for(const t in table){if(wrongTeam(t))continue;const s=sim(k,t);if(s>bs){bs=s;best=t}}if(bs>=0.88)return table[best]}
   return null;
 }
 
@@ -289,6 +325,68 @@ async function run(force){
   }catch(e){st.innerHTML=`<span class="err">${esc(e.message)}</span>`}
   $("go").disabled=false;
 }
+// ---------- Boone rankings loader ----------
+// Yahoo's Boone articles embed a FantasyPros widget; 317 is Boone's FantasyPros expert id. Not an official API, so Paste stays as a fallback.
+const FP_EXPERT="317",FP_POS={QB:"QB",FLEX:"FLX",K:"K",DEF:"DST"};
+function jsonp(url){
+  return new Promise((ok,no)=>{
+    const cb="fpcb_"+Math.random().toString(36).slice(2),s=document.createElement("script");
+    const done=()=>{clearTimeout(t);delete window[cb];s.remove()};
+    const t=setTimeout(()=>{done();no(new Error("FantasyPros didn't respond."))},20000);
+    window[cb]=d=>{done();ok(d)};s.onerror=()=>{done();no(new Error("Couldn't reach FantasyPros."))};
+    s.src=url+"&callback="+cb;document.head.appendChild(s);
+  });
+}
+async function fetchBoone(season,week,sec,scoring){
+  const q=new URLSearchParams({sport:"NFL",year:season,week,position:FP_POS[sec],scoring:sec==="FLEX"?scoring:"STD",experts:"show",type:"ST",filters:FP_EXPERT,widget:"ST"});
+  const d=await jsonp("https://partners.fantasypros.com/api/v1/consensus-rankings.php?"+q);
+  const who=(d.expert_names||{})[FP_EXPERT];
+  if(who&&!/boone/i.test(who))throw new Error(`FantasyPros expert ${FP_EXPERT} is now "${who}", not Boone. Paste lists for now.`);
+  // rank_ecr is the 1..N numbering Yahoo's widget displays (Boone's raw ranks have gaps for players FantasyPros dropped)
+  const ps=(d.players||[]).map(p=>({r:+(p.rank_ecr||(p.experts||{})[FP_EXPERT]),n:p.player_name,t:teamKey(p.player_team_id)}))
+    .filter(p=>p.r&&p.n).sort((a,b)=>a.r-b.r);
+  const pubStr=(d.expert_pub||{})[FP_EXPERT],pub=pubStr?Date.parse(pubStr.replace(" ","T")+"Z"):(d.last_updated_ts||0)*1000;
+  return{ps,pub};
+}
+async function sleeperWeek(){
+  const state=await api("/state/nfl",true),week=state.display_week||state.week;
+  store.set("cur_week",String(week));return{season:state.season,week};
+}
+async function loadBoone(){
+  const st=$("status"),btn=$("loadB"),scoring=$("scoring").value;
+  btn.disabled=true;st.textContent="Loading Boone's rankings…";
+  try{
+    const {season,week}=await sleeperWeek();
+    const res=await Promise.all(LISTS.map(([k])=>fetchBoone(season,week,k,scoring).catch(e=>({err:e}))));
+    const fatal=res.find(r=>r.err&&/not Boone/.test(r.err.message));if(fatal)throw fatal.err;
+    if(!res.some(r=>r.ps&&r.ps.length)){
+      if(res.every(r=>r.err))throw res[0].err;
+      st.textContent=`Boone's week ${week} rankings aren't published yet. Your current lists were kept.`;return;
+    }
+    const got=[],missing=[];let latest=0;
+    LISTS.forEach(([k,l],i)=>{const r=res[i];
+      if(!r.ps||!r.ps.length){missing.push(l);return}
+      $("t_"+k).value=r.ps.map(p=>`${p.r}. ${p.n}${p.t?` (${p.t})`:""}`).join("\n");
+      updCount(k,true);store.set("src_"+k,JSON.stringify({season,week,scoring,pub:r.pub}));updCount(k);
+      got.push(l);latest=Math.max(latest,r.pub);
+    });
+    $("bnote").hidden=true;
+    st.textContent=`Loaded Boone's week ${week} ${scoring==="HALF"?"half-PPR":"PPR"} rankings (updated ${fmtTime(latest)}).`+(missing.length?` Not available yet: ${missing.join(", ")}.`:"");
+  }catch(e){st.innerHTML=`<span class="err">${esc(e.message)}</span>`}
+  finally{btn.disabled=false}
+}
+// On open: say so if Boone has posted rankings newer than the loaded lists
+async function checkBoone(){
+  try{
+    const {season,week}=await sleeperWeek();
+    for(const [k] of LISTS)updCount(k);
+    const src=getSrc("QB")||getSrc("FLEX"),r=await fetchBoone(season,week,"QB","STD");
+    if(!r.ps.length)return;
+    const behind=!src||src.week!==week||r.pub>src.pub+60e3;
+    if(behind){$("bnote").textContent=`Boone's week ${week} rankings ${src&&src.week===week?"were updated":"are out"} (${fmtTime(r.pub)}). Tap Load to get them.`;$("bnote").hidden=false}
+  }catch(e){}
+}
+
 // ---------- Weather tab ----------
 // Home stadiums: [name, city, lat, lon, roof]. roof: dome (fixed roof, weather irrelevant), ret (retractable), open
 const STADIUMS={
@@ -445,7 +543,10 @@ function wxRender(){
 $("w_starters").checked=store.get("w_starters")!=="0";$("w_allgames").checked=store.get("w_allgames")==="1";
 $("w_go").onclick=wxRun;$("w_starters").onchange=wxRender;$("w_allgames").onchange=wxRender;
 
-$("user").value=store.get("user")||"";buildBoxes();$("newweek").onclick=()=>{for(const [k] of LISTS){$("t_"+k).value="";updCount(k,true)}$("status").textContent="Cleared. Paste this week's lists."};$("doubt").checked=store.get("doubt")==="1";$("debug").checked=store.get("debug")==="1";
+$("scoring").value=store.get("scoring")==="HALF"?"HALF":"PPR";
+$("scoring").onchange=()=>{store.set("scoring",$("scoring").value);if(getSrc("FLEX"))loadBoone()};
+$("loadB").onclick=loadBoone;
+$("user").value=store.get("user")||"";buildBoxes();checkBoone();$("newweek").onclick=()=>{for(const [k] of LISTS){$("t_"+k).value="";updCount(k,true)}$("status").textContent="Cleared. Tap Load or paste this week's lists."};$("doubt").checked=store.get("doubt")==="1";$("debug").checked=store.get("debug")==="1";
 const TABS=["lineup","fa","weather"];
 function showTab(t){if(!TABS.includes(t))t="lineup";
   for(const k of TABS){$("p_"+k).hidden=k!==t;$("tb_"+k).setAttribute("aria-selected",String(k===t))}
