@@ -10,9 +10,10 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS trade_values (season INTEGER NOT NULL, week INTEGER NOT NULL, pos TEXT NOT NULL, published TEXT, fetched_at TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY (season, week, pos))`,
   `CREATE TABLE IF NOT EXISTS lineup_builds (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, season INTEGER, week INTEGER, league_id TEXT, league_name TEXT, scoring TEXT, rankings_pub INTEGER, source TEXT, result TEXT NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS lineup_builds_created ON lineup_builds (created_at)`,
-  // One saved build per league (the latest). Clear out older duplicates from before this rule, then enforce it.
-  `DELETE FROM lineup_builds WHERE league_id IS NOT NULL AND id NOT IN (SELECT MAX(id) FROM lineup_builds WHERE league_id IS NOT NULL GROUP BY league_id)`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS lineup_builds_league ON lineup_builds (league_id)`,
+  // One saved build per league, rankings source and scoring (the latest). Older rule was one per league.
+  `DROP INDEX IF EXISTS lineup_builds_league`,
+  `DELETE FROM lineup_builds WHERE league_id IS NOT NULL AND id NOT IN (SELECT MAX(id) FROM lineup_builds WHERE league_id IS NOT NULL GROUP BY league_id, IFNULL(source, ''), IFNULL(scoring, ''))`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS lineup_builds_key ON lineup_builds (league_id, source, scoring)`,
 ];
 
 let ready = null;
@@ -76,14 +77,15 @@ export async function putProfile(db, { sleeperUsername, settings }) {
   return getProfile(db);
 }
 
-// ---- Saved lineup builds: the latest build per league; building again replaces it ----
+// ---- Saved lineup builds: the latest build per league, rankings source and scoring; building again with the same ones replaces it ----
 export async function addBuilds(db, builds) {
   const created = now();
+  // source and scoring are part of the key, so they're never left NULL (NULLs never match in a unique index)
   const stmts = builds.filter((b) => b.leagueId).map((b) =>
     db.prepare(`INSERT INTO lineup_builds (created_at, season, week, league_id, league_name, scoring, rankings_pub, source, result) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(league_id) DO UPDATE SET created_at = excluded.created_at, season = excluded.season, week = excluded.week, league_name = excluded.league_name,
-        scoring = excluded.scoring, rankings_pub = excluded.rankings_pub, source = excluded.source, result = excluded.result`)
-      .bind(created, b.season ?? null, b.week ?? null, String(b.leagueId), b.leagueName ?? null, b.scoring ?? null, b.rankingsPub ?? null, b.source ?? null, JSON.stringify(b.result ?? {})));
+      ON CONFLICT(league_id, source, scoring) DO UPDATE SET created_at = excluded.created_at, season = excluded.season, week = excluded.week, league_name = excluded.league_name,
+        rankings_pub = excluded.rankings_pub, result = excluded.result`)
+      .bind(created, b.season ?? null, b.week ?? null, String(b.leagueId), b.leagueName ?? null, String(b.scoring || "PPR"), b.rankingsPub ?? null, String(b.source || "pasted"), JSON.stringify(b.result ?? {})));
   if (stmts.length) await db.batch(stmts);
   return stmts.length;
 }
@@ -92,7 +94,7 @@ export async function listBuilds(db, limit = 30) {
   const { results } = await db.prepare(`SELECT b.*, CASE WHEN b.source IN ('ecr', 'sleeper')
       THEN (SELECT MAX(pub) FROM rankings_latest r WHERE r.source = b.source AND r.kind = 'week' AND r.season = b.season AND r.week = b.week)
       ELSE (SELECT MAX(pub) FROM rankings r WHERE r.season = b.season AND r.week = b.week) END AS latest_pub
-    FROM lineup_builds b ORDER BY b.created_at DESC, b.league_name LIMIT ?`).bind(limit).all();
+    FROM lineup_builds b ORDER BY b.league_name, b.created_at DESC LIMIT ?`).bind(limit).all();
   return results.map((r) => ({
     id: r.id, createdAt: r.created_at, season: r.season, week: r.week, leagueId: r.league_id, leagueName: r.league_name,
     scoring: r.scoring, rankingsPub: r.rankings_pub, latestPub: r.latest_pub, source: r.source, result: JSON.parse(r.result),
