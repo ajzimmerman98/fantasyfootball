@@ -1,117 +1,156 @@
 // Boone Lineups API (Cloudflare Worker)
 //
-// GET /trade-values  Justin Boone's latest rest-of-season trade value charts (QB, RB, WR, TE),
-//                    read from his weekly Yahoo articles.
-// GET /health        Liveness check.
+// Public (Boone's published data):
+//   GET  /trade-values                      Boone's latest trade value charts (?refresh skips the 1-hour cache)
+//   GET  /rankings?season&week&scoring      Boone's QB, FLEX, K, DEF lists (scoring = PPR | HALF; defaults to Sleeper's current week)
+//   GET  /rankings/status?season&week       Newest publish time of Boone's rankings for that week
+//   GET  /health
+// Private (header "Authorization: Bearer <ACCESS_CODE>"):
+//   GET/PUT /me/profile                     Sleeper username and app settings
+//   GET  /me/builds?limit                   Saved lineup builds, each with the newest rankings time for its week
+//   POST /me/builds                         Save builds: { builds: [...] }
+//   DELETE /me/builds/:id
+// Scheduled every 3 hours: save new versions of Boone's rankings and the week's trade value charts.
 //
-// Yahoo doesn't allow browsers on other sites to read its pages, so the app asks this Worker instead.
-// No storage bindings yet: results are kept in memory for an hour per Worker instance.
+// Bindings: DB (D1). Secret: ACCESS_CODE.
 
-const AUTHOR_URL = "https://sports.yahoo.com/author/justin-boone/";
-const ARTICLE_BASE = "https://sports.yahoo.com";
-const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
-const CACHE_MS = 60 * 60 * 1000;
-const POSITIONS = { quarterback: "QB", "running-back": "RB", "wide-receiver": "WR", "tight-end": "TE" };
-// e.g. /fantasy/article/2026-trade-value-charts--justin-boones-fantasy-football-running-back-breakdown-for-week-8-154046064.html
-const ARTICLE_RE = /\/fantasy\/article\/(\d{4})-trade-value-charts--justin-boones-fantasy-football-(quarterback|running-back|wide-receiver|tight-end)-breakdown-for-week-(\d+)-\d+\.html/g;
-
-let memo = null; // { ts, data }
+import { loadTradeValues } from "./tradevalues.js";
+import { fetchList, sleeperWeek, appLists } from "./rankings.js";
+import * as store from "./db.js";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Max-Age": "86400",
 };
+const json = (body, status = 200, cache = "no-store") =>
+  new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": cache, ...CORS } });
 
-function json(body, status = 200, extra = {}) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=300", ...CORS, ...extra },
-  });
-}
+class HttpError extends Error { constructor(status, msg) { super(msg); this.status = status; } }
 
-async function getText(url) {
-  const r = await fetch(url, { headers: { "User-Agent": UA, Accept: "text/html" }, redirect: "follow" });
-  if (!r.ok) throw new Error(`Yahoo returned ${r.status} for ${url}`);
-  return r.text();
-}
+let tvMemo = null; // { ts, data }
+const TV_CACHE_MS = 60 * 60 * 1000;
 
-const decode = (s) =>
-  s.replace(/<[^>]+>/g, "")
-    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(+d))
-    .replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&")
-    .trim();
-
-// Newest article per position: highest season, then highest week
-export function findArticles(html) {
-  const best = {};
-  for (const m of html.matchAll(ARTICLE_RE)) {
-    const [path, season, slug, week] = m;
-    const pos = POSITIONS[slug], cur = best[pos], key = +season * 100 + +week;
-    if (!cur || key > cur.key) best[pos] = { pos, season: +season, week: +week, url: ARTICLE_BASE + path, key };
+async function tradeValues(env, fresh) {
+  if (!fresh && tvMemo && Date.now() - tvMemo.ts < TV_CACHE_MS) return tvMemo.data;
+  try {
+    const data = await loadTradeValues();
+    tvMemo = { ts: Date.now(), data };
+    if (env.DB) await store.ensureSchema(env.DB).then(() => store.saveTradeValues(env.DB, data)).catch(() => {});
+    return data;
+  } catch (e) {
+    if (tvMemo) return { ...tvMemo.data, stale: true, staleReason: e.message };
+    throw new HttpError(502, e.message);
   }
-  return Object.values(best).map(({ key, ...a }) => a);
 }
 
-// First table whose header has Player plus value columns (HALF/PPR or 1QB/2QB)
-export function parseChart(html) {
-  for (const table of html.match(/<table[\s\S]*?<\/table>/g) || []) {
-    const rows = (table.match(/<tr[\s\S]*?<\/tr>/g) || []).map((r) => (r.match(/<t[hd][^>]*>[\s\S]*?<\/t[hd]>/g) || []).map(decode));
-    if (rows.length < 2) continue;
-    const head = rows[0].map((h) => h.toUpperCase());
-    const iName = head.indexOf("PLAYER"), iRank = head.findIndex((h) => h === "RK" || h === "RANK");
-    const cols = head.map((h, i) => [h, i]).filter(([h]) => ["HALF", "PPR", "1QB", "2QB", "STD"].includes(h));
-    if (iName < 0 || !cols.length) continue;
-    const players = [];
-    for (const r of rows.slice(1)) {
-      const name = r[iName];
-      if (!name) continue;
-      const values = {};
-      for (const [h, i] of cols) { const v = parseFloat(r[i]); if (!isNaN(v)) values[h] = v; }
-      players.push({ rank: iRank >= 0 ? +r[iRank] || players.length + 1 : players.length + 1, name, values });
-    }
-    if (players.length) return { columns: cols.map(([h]) => h), players };
-  }
-  return null;
+async function weekParams(url) {
+  const s = url.searchParams.get("season"), w = url.searchParams.get("week");
+  if (s && w) return { season: +s, week: +w };
+  return sleeperWeek();
 }
 
-const published = (html) => (html.match(/"datePublished":"([^"]+)"/) || [])[1] || null;
-
-export async function loadTradeValues() {
-  const articles = findArticles(await getText(AUTHOR_URL));
-  if (!articles.length) throw new Error("No trade value chart articles found on Boone's Yahoo author page.");
-  const charts = {}, errors = [];
-  await Promise.all(articles.map(async (a) => {
+// Live from FantasyPros, saving new versions; falls back to the newest saved copy if FantasyPros fails
+async function rankings(env, season, week, scoring) {
+  const map = appLists(scoring), db = env.DB;
+  if (db) await store.ensureSchema(db);
+  const lists = {}, errors = [];
+  await Promise.all(Object.entries(map).map(async ([appKey, key]) => {
     try {
-      const html = await getText(a.url), chart = parseChart(html);
-      if (!chart) throw new Error("no trade value table in article");
-      charts[a.pos] = { week: a.week, season: a.season, url: a.url, published: published(html), ...chart };
-    } catch (e) { errors.push(`${a.pos}: ${e.message}`); }
+      const l = await fetchList(season, week, key);
+      lists[appKey] = { pub: l.pub, players: l.players, source: "live" };
+      if (db) await store.saveRankings(db, season, week, l);
+    } catch (e) {
+      if (/not Boone/.test(e.message)) throw new HttpError(409, e.message);
+      errors.push(`${appKey}: ${e.message}`);
+      const saved = db ? (await store.latestRankings(db, season, week, [key]))[key] : null;
+      if (saved) lists[appKey] = { pub: saved.pub, players: saved.players, source: "saved" };
+    }
   }));
-  if (!Object.keys(charts).length) throw new Error("Couldn't read any trade value charts. " + errors.join("; "));
-  const weeks = Object.values(charts).map((c) => c.week);
-  return { source: "Justin Boone, Yahoo Sports", week: Math.max(...weeks), season: Math.max(...Object.values(charts).map((c) => c.season)), fetched: new Date().toISOString(), charts, errors };
+  return { season, week, scoring, lists, errors };
+}
+
+function authorize(request, env) {
+  if (!env.ACCESS_CODE) throw new HttpError(503, "ACCESS_CODE isn't set on the Worker yet.");
+  if (!env.DB) throw new HttpError(503, "The D1 database isn't connected to the Worker yet.");
+  const got = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+  const a = new TextEncoder().encode(got), b = new TextEncoder().encode(env.ACCESS_CODE);
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < Math.max(a.length, b.length); i++) diff |= (a[i] || 0) ^ (b[i] || 0);
+  if (diff) throw new HttpError(401, "Wrong access code.");
+}
+
+async function readJson(request) {
+  if (+(request.headers.get("Content-Length") || 0) > 256 * 1024) throw new HttpError(413, "Too large.");
+  try { return await request.json(); } catch { throw new HttpError(400, "Expected JSON."); }
+}
+
+async function handle(request, env) {
+  const url = new URL(request.url), path = url.pathname.replace(/\/+$/, "") || "/", m = request.method;
+  if (m === "OPTIONS") return new Response(null, { headers: CORS });
+
+  if (path === "/health") return json({ ok: true, db: !!env.DB, accessCode: !!env.ACCESS_CODE });
+  if (path === "/trade-values" && m === "GET") return json(await tradeValues(env, url.searchParams.has("refresh")), 200, "public, max-age=300");
+  if (path === "/rankings" && m === "GET") {
+    const { season, week } = await weekParams(url), scoring = url.searchParams.get("scoring") === "HALF" ? "HALF" : "PPR";
+    return json(await rankings(env, season, week, scoring));
+  }
+  if (path === "/rankings/status" && m === "GET") {
+    const { season, week } = await weekParams(url);
+    // Check the QB list live (all lists are published together), then report the newest time known
+    const live = await fetchList(season, week, "QB").catch(() => null);
+    let pub = live?.pub || 0;
+    if (env.DB) {
+      await store.ensureSchema(env.DB);
+      if (live) await store.saveRankings(env.DB, season, week, live);
+      pub = Math.max(pub, await store.latestPub(env.DB, season, week));
+    }
+    return json({ season, week, latestPub: pub || null });
+  }
+
+  if (path.startsWith("/me/")) {
+    authorize(request, env);
+    const db = env.DB;
+    await store.ensureSchema(db);
+    if (path === "/me/profile" && m === "GET") return json(await store.getProfile(db));
+    if (path === "/me/profile" && m === "PUT") {
+      const b = await readJson(request);
+      return json(await store.putProfile(db, { sleeperUsername: typeof b.sleeperUsername === "string" ? b.sleeperUsername.slice(0, 64) : null, settings: b.settings && typeof b.settings === "object" ? b.settings : {} }));
+    }
+    if (path === "/me/builds" && m === "GET") return json({ builds: await store.listBuilds(db, Math.min(100, +url.searchParams.get("limit") || 30)) });
+    if (path === "/me/builds" && m === "POST") {
+      const b = await readJson(request);
+      if (!Array.isArray(b.builds) || b.builds.length > 30) throw new HttpError(400, "Expected { builds: [...] } with at most 30 builds.");
+      return json({ saved: await store.addBuilds(db, b.builds) });
+    }
+    const del = path.match(/^\/me\/builds\/(\d+)$/);
+    if (del && m === "DELETE") return json({ deleted: await store.deleteBuild(db, +del[1]) });
+  }
+  return json({ error: "Not found" }, 404);
+}
+
+export async function scheduled(env) {
+  const out = { rankings: {}, tradeValues: null, errors: [] };
+  if (!env.DB) return out;
+  await store.ensureSchema(env.DB);
+  try {
+    const { season, week } = await sleeperWeek();
+    for (const key of ["QB", "FLEX:PPR", "FLEX:HALF", "K", "DEF"]) {
+      try { out.rankings[key] = await store.saveRankings(env.DB, season, week, await fetchList(season, week, key)); }
+      catch (e) { out.errors.push(`${key}: ${e.message}`); }
+    }
+  } catch (e) { out.errors.push(`week: ${e.message}`); }
+  try { const d = await tradeValues(env, true); out.tradeValues = d.week; } catch (e) { out.errors.push(`trade values: ${e.message}`); }
+  return out;
 }
 
 export default {
-  async fetch(request) {
-    const url = new URL(request.url);
-    if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
-    if (request.method !== "GET") return json({ error: "Method not allowed" }, 405);
-    if (url.pathname === "/health") return json({ ok: true });
-    if (url.pathname === "/trade-values") {
-      const fresh = url.searchParams.has("refresh");
-      try {
-        if (!fresh && memo && Date.now() - memo.ts < CACHE_MS) return json(memo.data);
-        const data = await loadTradeValues();
-        memo = { ts: Date.now(), data };
-        return json(data);
-      } catch (e) {
-        if (memo) return json({ ...memo.data, stale: true, staleReason: e.message });
-        return json({ error: e.message }, 502);
-      }
-    }
-    return json({ error: "Not found", endpoints: ["/trade-values", "/health"] }, 404);
+  async fetch(request, env) {
+    try { return await handle(request, env); }
+    catch (e) { return json({ error: e.message }, e.status || 500); }
+  },
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(scheduled(env).then((r) => console.log("scheduled", JSON.stringify(r))));
   },
 };
