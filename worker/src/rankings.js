@@ -1,6 +1,9 @@
 // Rankings from the FantasyPros feed behind the widget in Boone's Yahoo articles. Not an official API, so the app keeps Paste as a fallback.
 // Sources: "boone" = Justin Boone only (FantasyPros expert 317); "ecr" = FantasyPros expert consensus (no expert filter).
+//          "sleeper" = Sleeper's weekly projections, ranked by projected points (see sleeper.js).
 // Kinds: "week" = this week's rankings; "ros" = rest of season (consensus only; Boone has no rest-of-season list there).
+
+import { fetchSleeperList } from "./sleeper.js";
 
 export const EXPERT = "317";
 const FP_URL = "https://partners.fantasypros.com/api/v1/consensus-rankings.php";
@@ -19,10 +22,14 @@ export const appLists = (scoring) => ({ QB: "QB", FLEX: scoring === "HALF" ? "FL
 const TEAM_FIX = { JAC: "JAX", WSH: "WAS", LA: "LAR", OAK: "LV", SD: "LAC" };
 const teamKey = (t) => (t ? TEAM_FIX[t] || t : t);
 
-export const SOURCES = ["boone", "ecr"];
+export const SOURCES = ["boone", "ecr", "sleeper"];
 export const KINDS = ["week", "ros"];
 
 export async function fetchList(season, week, key, source = "boone", kind = "week") {
+  if (source === "sleeper") {
+    if (kind !== "week") throw new Error("Sleeper projections are weekly only");
+    return fetchSleeperList(season, week, key);
+  }
   const def = LIST_DEFS[key], boone = source === "boone";
   if (boone && kind !== "week") throw new Error("Boone only has weekly rankings on FantasyPros");
   const q = new URLSearchParams({ sport: "NFL", year: String(season), week: kind === "ros" ? "0" : String(week), position: def.pos, scoring: def.scoring, type: kind === "ros" ? "ROS" : "ST" });
