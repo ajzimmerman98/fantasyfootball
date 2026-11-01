@@ -113,6 +113,20 @@ test("history: standings, head-to-head and records for the league", async () => 
   await page.waitForFunction(() => /games\./.test(document.getElementById("hi_status").textContent), null, { timeout: 30000 });
   const out = await text(page, "#hi_out");
   for (const s of ["Champions", "All-time standings", "Head-to-head", "League records", "Luck index", "Season by season"]) assert.ok(out.includes(s), s);
+  // Draft recap: grades for both managers, steals and busts with real names
+  assert.match(out, /Draft recap 2026 Grades by the points each manager's picks scored so far\./);
+  assert.match(out, /A\+ · (aj|rival) [\d,]+ Best pick: /);
+  assert.match(out, /F · (aj|rival) [\d,]+ Best pick: /);
+  assert.match(out, /Biggest steals .*round \d+, pick \d+ · finished #\d+ among drafted players/i);
+  assert.match(out, /Biggest busts Jaxon Smith-Njigba WR -\d+ rival · round 1, pick 2/i);
+  // Trade (week 3): aj got Drake Maye; rival got Jalen Coker and aj's 2027 round 2 pick
+  assert.match(out, /Trades 1 trade · most active: /);
+  assert.match(out, /2026 week 3 (aj|rival) won by [\d.]+ so far/);
+  assert.match(out, /aj got Drake Maye QB [\d.]+/);
+  assert.match(out, /rival got Jalen Coker WR, 2027 round 2 [\d.]+/);
+  // Pickups: Germie Bernard off waivers for $12 in week 2
+  assert.match(out, /Best pickups .*Germie Bernard WR \d+ aj · 2026 week 2 · \$12/);
+  assert.match(out, /Most moves (aj|rival) 1 · (aj|rival) 1/i);
   assert.deepEqual(errors, []);
 });
 

@@ -45,6 +45,27 @@ const matchups = {
   L2: [{ roster_id: 1, matchup_id: 1, points: 0, starters: ["7", "1"] }, { roster_id: 2, matchup_id: 1, points: 0, starters: ["9"] }],
 };
 
+// League history for L1 this season: weeks 1-7 played, a draft, one trade (week 3) and two pickups
+const pts = (id, w) => Math.round(((+id || 11) * 3.7 + w * 1.3) % 25 * 10) / 10 + 2;
+function histWeek(w) {
+  // Roster 1 starts Germie Bernard ("8") from week 2 (waiver pickup) and Drake Maye ("9") from week 3 (trade)
+  const s1 = ["7", "1", "2", "3", "4", w >= 3 ? "9" : "5", w >= 2 ? "8" : "6"], s2 = ["20", "21", "22", "23", w < 3 ? "9" : "24"];
+  const side = (rid, starters) => ({ roster_id: rid, matchup_id: 1, starters, starters_points: starters.map((id) => pts(id, w)),
+    players_points: Object.fromEntries(starters.map((id) => [id, pts(id, w)])), points: starters.reduce((t, id) => t + pts(id, w), 0) });
+  return [side(1, s1), side(2, s2)];
+}
+const draftPicks = [["7", 1], ["20", 2], ["21", 2], ["1", 1], ["2", 1], ["22", 2], ["23", 2], ["3", 1], ["4", 1], ["24", 2], ["9", 2], ["5", 1]].map(([pid, rid], k) => {
+  const p = players[pid];
+  return { round: Math.floor(k / 2) + 1, pick_no: k + 1, player_id: pid, roster_id: rid, picked_by: rid === 1 ? "U1" : "U2", is_keeper: null,
+    metadata: { first_name: p.first_name, last_name: p.last_name, position: p.position } };
+});
+const transactions = {
+  2: [{ type: "waiver", status: "complete", leg: 2, created: 2, roster_ids: [1], adds: { "8": 1 }, drops: { "6": 1 }, settings: { waiver_bid: 12 } }],
+  3: [{ type: "trade", status: "complete", leg: 3, created: 3, roster_ids: [1, 2], adds: { "9": 1, "24": 2 }, drops: { "9": 2, "24": 1 },
+        draft_picks: [{ season: "2027", round: 2, roster_id: 1, owner_id: 2, previous_owner_id: 1 }], waiver_budget: [] }],
+  4: [{ type: "free_agent", status: "complete", leg: 4, created: 4, roster_ids: [2], adds: { "30": 2 }, drops: null }],
+};
+
 // Sleeper API (the browser calls it directly)
 export function sleeper(pathname) {
   const p = pathname.replace(/^\/v1/, "");
@@ -59,11 +80,15 @@ export function sleeper(pathname) {
   if ((m = p.match(/^\/league\/(L\d)\/matchups\/(\d+)$/))) {
     const w = +m[2];
     if (w === WEEK) return matchups[m[1]];
+    if (m[1] === "L1" && w < WEEK) return histWeek(w);
     // Rest of the regular season (weeks 9-14): the same two teams meet, nothing scored yet
     if (w > WEEK && w < 15) return matchups[m[1]].map((x) => ({ ...x, points: 0 }));
     return [];
   }
   if ((m = p.match(/^\/league\/(L\d)\/winners_bracket$/))) return [];
+  if ((m = p.match(/^\/league\/(L\d)\/drafts$/))) return m[1] === "L1" ? [{ draft_id: "D1", status: "complete" }] : [];
+  if (p === "/draft/D1/picks") return draftPicks;
+  if ((m = p.match(/^\/league\/(L\d)\/transactions\/(\d+)$/))) return m[1] === "L1" ? transactions[+m[2]] || [] : [];
   if ((m = p.match(/^\/league\/(L\d)$/))) return { ...leagues.find((l) => l.league_id === m[1]), season: SEASON, status: "in_season", previous_league_id: null };
   return [];
 }
