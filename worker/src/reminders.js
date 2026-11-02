@@ -1,4 +1,5 @@
 // Reminders, checked on the Worker's 3-hour schedule and sent with Web Push (push.js):
+// - Weekly recap: Tuesday from 7 AM Eastern, each Sleeper league's result, record, playoff odds (and change) and top scorer.
 // - Waiver tips: Tuesday from 10 AM Eastern, free agents ranked above one of your starters (FantasyPros rest of season).
 // - New Justin Boone rankings: when a new version of his weekly rankings is saved (at most one notice every 12 hours).
 // - Lineup problems: a Sleeper starter who is out, doubtful, on IR, suspended or on bye, or an empty starting spot,
@@ -8,10 +9,14 @@
 import { sendPush, vapidKeys } from "./push.js";
 import { sleeperPlayers } from "./sleeper.js";
 import { fetchList } from "./rankings.js";
+import { lineupStrength, strengths, simulateSeason } from "./playoffs.js";
 import * as store from "./db.js";
 
 const SLEEPER = "https://api.sleeper.app/v1";
 const SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard";
+// Nothing is sent from 11 PM to 7 AM on the device's clock; whatever is due waits for the first check after 7 AM.
+const localHour = (now, tz) => { try { return +new Intl.DateTimeFormat("en-US", { timeZone: tz || "America/New_York", hour: "numeric", hourCycle: "h23" }).format(new Date(now)); } catch { return localHour(now, "America/New_York"); } };
+export const quiet = (now, tz) => { const h = localHour(now, tz); return h >= 23 || h < 7; };
 export const LEAD_MS = 4 * 3600e3; // how long before kickoff problems are sent (the check runs every 3 hours)
 const BAD = { Out: "out", Doubtful: "doubtful", IR: "on IR", PUP: "on PUP", Sus: "suspended", Suspended: "suspended", NA: "not active" };
 const TEAM_FIX = { WSH: "WAS", JAC: "JAX", LA: "LAR" };
@@ -74,11 +79,12 @@ export async function lineupProblems(username, { season, week, players, games })
 const norm = (x) => String(x || "").toLowerCase().replace(/[.'’]/g, "").replace(/[^a-z0-9 ]/g, " ").replace(/\b(jr|sr|ii|iii|iv|v)\b/g, "").replace(/\s+/g, " ").trim();
 const TEAM_KEY = { JAC: "JAX", WSH: "WAS", LA: "LAR" }, tk = (t) => (t ? TEAM_KEY[t] || t : t);
 const MIN_GAIN = 5; // a pickup must be ranked at least this many places above the starter it would replace
-// Tuesday from 10 AM Eastern: the day waiver claims are made in most leagues
-export function waiverDay(now) {
+// Tuesday from a given hour Eastern (recap from 7 AM, waiver tips from 10 AM, when most leagues' claims are made)
+export const waiverDay = (now) => tuesdayFrom(now, 10);
+export function tuesdayFrom(now, hour) {
   const f = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric", hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(now));
   const g = (t) => f.find((x) => x.type === t)?.value;
-  return g("weekday") === "Tue" && +g("hour") >= 10 ? `${g("year")}-${g("month")}-${g("day")}` : null;
+  return g("weekday") === "Tue" && +g("hour") >= hour ? `${g("year")}-${g("month")}-${g("day")}` : null;
 }
 // Free agents ranked above one of your starters at their position, by FantasyPros rest-of-season rankings.
 // A free agent is only suggested when he can be matched to a Sleeper player id that no team has, so nobody already taken slips in.
@@ -127,6 +133,70 @@ export async function waiverTips(username, { season, players, ros }) {
   return tips;
 }
 
+// ---- Weekly recap ----
+// The most recent week whose NFL games are all final (this week, or the one before)
+export async function finishedWeek(season, week) {
+  for (const w of [week, week - 1]) {
+    if (w < 1) continue;
+    const g = Object.values(await weekSchedule(season, w));
+    if (g.length && g.every((x) => x.state === "post")) return w;
+  }
+  return null;
+}
+const pctTxt = (x) => (x >= 0.995 ? ">99%" : x > 0 && x < 0.005 ? "<1%" : Math.round(x * 100) + "%");
+// One line per Sleeper league for week `w`; also saves each league's playoff odds so next week can show the change
+export async function weeklyRecap(db, username, { season, w, players, sims = 2000 }) {
+  const u = await sj(`/user/${encodeURIComponent(username)}`).catch(() => null);
+  if (!u || !u.user_id) return [];
+  const out = [];
+  for (const lg of await sj(`/user/${u.user_id}/leagues/nfl/${season}`)) {
+    const st = lg.settings || {}, last = (+st.playoff_week_start || 15) - 1;
+    const [rosters, users, ms] = await Promise.all([sj(`/league/${lg.league_id}/rosters`), sj(`/league/${lg.league_id}/users`).catch(() => []), sj(`/league/${lg.league_id}/matchups/${w}`)]);
+    const mine = (rosters || []).find((r) => r.owner_id === u.user_id), m = mine && (ms || []).find((x) => x.roster_id === mine.roster_id);
+    const opp = m && m.matchup_id != null && ms.find((x) => x.matchup_id === m.matchup_id && x.roster_id !== m.roster_id);
+    if (!m || !opp) continue; // no game this week (bye, or out of the playoffs)
+    const a = +m.points || 0, b = +opp.points || 0, res = a > b ? "W" : a < b ? "L" : "T";
+    const oppRoster = rosters.find((r) => r.roster_id === opp.roster_id), oppUser = (users || []).find((x) => oppRoster && x.user_id === oppRoster.owner_id);
+    const oppName = oppUser?.metadata?.team_name || oppUser?.display_name || `Team ${opp.roster_id}`;
+    let top = null;
+    (m.starters || []).forEach((pid, i) => { const v = +(m.starters_points || [])[i] || 0; if (pid && pid !== "0" && (!top || v > top.v)) top = { pid, v }; });
+    let record = null, odds = null, delta = null;
+    if (w <= last) {
+      // Standings after this week (Sleeper may not have counted it yet), with next week's projected best lineups
+      const sc = scoringOf(lg), slots = (lg.roster_positions || []).filter((x) => !["BN", "IR", "TAXI"].includes(x));
+      const base = rosters.map((r) => {
+        const s2 = r.settings || {};
+        let W = +s2.wins || 0, L = +s2.losses || 0, T = +s2.ties || 0, pf = (+s2.fpts || 0) + (+s2.fpts_decimal || 0) / 100;
+        if (W + L + T < w) {
+          const mm = ms.find((x) => x.roster_id === r.roster_id), oo = mm && mm.matchup_id != null && ms.find((x) => x.matchup_id === mm.matchup_id && x.roster_id !== r.roster_id);
+          if (mm && oo) { pf += +mm.points || 0; if (+mm.points > +oo.points) W++; else if (+mm.points < +oo.points) L++; else T++; }
+        }
+        const away = new Set([...(r.reserve || []), ...(r.taxi || [])]), ids = (r.players || []).filter((id) => !away.has(id)), val = {}, pos = {};
+        for (const id of ids) { const p = players[id]; if (p) { pos[id] = p.pos; val[id] = BAD[p.inj] ? 0 : p.pts[sc] || 0; } }
+        return { id: r.roster_id, owner: r.owner_id, w: W, l: L, t: T, pf, g: W + L + T, proj: lineupStrength(ids, slots, val, pos) };
+      });
+      const me = base.find((t) => t.owner === u.user_id);
+      record = `${me.w}-${me.l}${me.t ? "-" + me.t : ""}`;
+      if (w < last) {
+        const weeks = await Promise.all(Array.from({ length: last - w }, (_, k) => sj(`/league/${lg.league_id}/matchups/${w + 1 + k}`).catch(() => [])));
+        const pairs = weeks.map((wm) => { const by = {}; for (const x of wm || []) if (x.matchup_id != null) (by[x.matchup_id] ||= []).push(x.roster_id); return Object.values(by).filter((g) => g.length === 2); });
+        if (pairs.some((g) => g.length)) {
+          const teams = strengths(base), k = teams.findIndex((t) => t.owner === u.user_id);
+          odds = simulateSeason({ teams, weeks: pairs, nPO: +st.playoff_teams || 6, median: +st.league_average_match === 1, sims, me: k }).teams[k].po;
+          const key = `odds|${username.toLowerCase()}|${lg.league_id}`, prev = JSON.parse((await store.getSetting(db, key)) || "null");
+          if (prev && prev.week === w - 1) delta = Math.round(odds * 100) - Math.round(prev.po * 100);
+          await store.setSetting(db, key, JSON.stringify({ week: w, po: odds }));
+        }
+      }
+    }
+    out.push({ league: lg.name, res, a, b, playoffs: w > last,
+      text: `${lg.name}: ${w > last ? "playoffs, " : ""}${res} ${a.toFixed(1)}–${b.toFixed(1)} vs ${oppName}` +
+        (record ? ` · ${record}` : "") + (odds != null ? ` · playoff odds ${pctTxt(odds)}${delta ? ` (${delta > 0 ? "▲" : "▼"}${Math.abs(delta)})` : ""}` : "") +
+        (top ? ` · top scorer ${players[top.pid]?.name || top.pid} ${top.v.toFixed(1)}` : "") });
+  }
+  return out;
+}
+
 const timeIn = (ms, tz) => { try { return new Date(ms).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit", timeZone: tz || "America/New_York" }); } catch { return new Date(ms).toISOString(); } };
 
 // The scheduled check. newBoone: a new version of Justin Boone's rankings for `week` was saved on this run.
@@ -141,18 +211,20 @@ export async function runReminders(env, { season, week, newBoone, now = Date.now
     return r;
   };
 
-  // New rankings
+  // New rankings: a notice lasts 12 hours, so a device in quiet hours gets it after 7 AM
   if (newBoone) {
     const last = JSON.parse((await store.getSetting(db, "boone_notice")) || "null");
-    if (!last || last.week !== week || now - last.at > 12 * 3600e3) {
-      await store.setSetting(db, "boone_notice", JSON.stringify({ week, at: now }));
-      const title = last && last.week === week ? `Justin Boone updated his week ${week} rankings` : `Justin Boone's week ${week} rankings are out`;
-      for (const s of subs) if (s.prefs.rankings !== false) await send(s, { title, body: "Tap to build your lineups.", url: "./#lineup", tag: `rankings-${week}` });
-    }
+    if (!last || last.week !== week || now - last.at > 12 * 3600e3)
+      await store.setSetting(db, "boone_notice", JSON.stringify({ week, at: now, title: last && last.week === week ? `Justin Boone updated his week ${week} rankings` : `Justin Boone's week ${week} rankings are out` }));
+  }
+  const notice = JSON.parse((await store.getSetting(db, "boone_notice")) || "null");
+  if (notice && now - notice.at < 12 * 3600e3) for (const s of subs) {
+    if (s.prefs.rankings === false || quiet(now, s.tz) || !(await store.unsent(db, s.endpoint, [`rankings|${notice.at}`])).size) continue;
+    if ((await send(s, { title: notice.title, body: "Tap to build your lineups.", url: "./#lineup", tag: `rankings-${notice.week}` })) === "ok") await store.markSent(db, s.endpoint, [`rankings|${notice.at}`]);
   }
 
   // Lineup problems
-  const want = subs.filter((s) => s.prefs.lineup !== false && s.sleeper_username);
+  const want = subs.filter((s) => s.prefs.lineup !== false && s.sleeper_username && !quiet(now, s.tz));
   if (want.length) {
     const [players, games] = await Promise.all([sleeperPlayers(season, week), weekSchedule(season, week)]);
     for (const s of want) {
@@ -172,8 +244,30 @@ export async function runReminders(env, { season, week, newBoone, now = Date.now
       } catch (e) { result.errors.push(`${s.sleeper_username}: ${e.message}`); }
     }
   }
+  // Weekly recap: once on Tuesday (from 7 AM Eastern) for the week that just finished
+  const rday = tuesdayFrom(now, 7), recapFor = [];
+  if (rday) for (const s of subs) if (s.prefs.recap !== false && s.sleeper_username && !quiet(now, s.tz) && (await store.unsent(db, s.endpoint, [`recap|${rday}`])).size) recapFor.push(s);
+  if (recapFor.length) {
+    const w = await finishedWeek(season, week).catch(() => null);
+    if (w) {
+      const players = await sleeperPlayers(season, w + 1).catch(() => ({}));
+      for (const s of recapFor) {
+        try {
+          const lines = await weeklyRecap(db, s.sleeper_username, { season, w, players });
+          if (lines.length) {
+            const n = (r) => lines.filter((x) => x.res === r).length, one = lines[0];
+            const title = lines.length === 1 ? `Week ${w}: you ${one.res === "W" ? "won" : one.res === "L" ? "lost" : "tied"} ${one.a.toFixed(1)}–${one.b.toFixed(1)}` : `Week ${w} recap: ${n("W")}-${n("L")}${n("T") ? "-" + n("T") : ""}`;
+            const r = await send(s, { title, body: lines.map((x) => x.text).join("\n"), url: "./#power", tag: `recap-${w}` });
+            if (r !== "ok") continue;
+          }
+          await store.markSent(db, s.endpoint, [`recap|${rday}`]);
+        } catch (e) { result.errors.push(`${s.sleeper_username} recap: ${e.message}`); }
+      }
+    }
+  }
+
   // Waiver tips: once on Tuesday (from 10 AM Eastern)
-  const day = waiverDay(now), tipsFor = subs.filter((s) => s.prefs.waivers !== false && s.sleeper_username);
+  const day = waiverDay(now), tipsFor = subs.filter((s) => s.prefs.waivers !== false && s.sleeper_username && !quiet(now, s.tz));
   if (day && tipsFor.length) {
     const fresh = [];
     for (const s of tipsFor) if ((await store.unsent(db, s.endpoint, [`waivers|${day}`])).size) fresh.push(s);
