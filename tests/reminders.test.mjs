@@ -78,7 +78,10 @@ test("reminders: new Justin Boone rankings, lineup problems before kickoff, each
   await db.saveSub(env.DB, { endpoint: phone.endpoint, ...phone.keys, sleeperUsername: "aj", prefs: { rankings: true, lineup: true }, tz: "America/New_York" });
   await db.saveSub(env.DB, { endpoint: quiet.endpoint, ...quiet.keys, sleeperUsername: "aj", prefs: { rankings: false, lineup: false } });
   await db.saveSub(env.DB, { endpoint: gone.endpoint, ...gone.keys, sleeperUsername: "aj", prefs: {} });
-  state.injuries = { "1": "Out" }; // Bijan Robinson (ATL, Sunday 1:00 PM ET) is out
+  // Bijan Robinson (RB) and Omar Cooper (FLEX) are out; Tetairoa McMillan (WR, CAR, not started) is on my bench.
+  // Germie Bernard is also on the bench, but his game is over, so he can't come in.
+  state.injuries = { "1": "Out", "6": "Out" };
+  state.bench = ["31"];
   const kickoff = Date.parse("2026-11-01T18:00:00Z"), ctx = { season: "2026", week: 9 };
   try {
     // 6 hours before kickoff: rankings notice only (too early for lineup problems)
@@ -92,12 +95,39 @@ test("reminders: new Justin Boone rankings, lineup problems before kickoff, each
     r = await runReminders(env, { ...ctx, newBoone: true, now: kickoff - 2 * 3600e3 });
     mine = await Promise.all(pushesTo(phone).map((p) => phone.decrypt(p.body)));
     assert.equal(mine.length, 2);
-    assert.equal(mine[1].title, "Lineup check: Bijan Robinson is out");
-    assert.match(mine[1].body, /Sleeper League: Bijan Robinson is out/);
-    assert.match(mine[1].body, /Half League: Bijan Robinson is out/);
+    assert.equal(mine[1].title, "Lineup check: 2 problems");
+    // Each problem names who to start instead: the best healthy bench player for that spot whose game hasn't started
+    assert.match(mine[1].body, /Sleeper League: Bijan Robinson is out → no healthy RB on your bench/);
+    assert.match(mine[1].body, /Sleeper League: Omar Cooper is out → start Tetairoa McMillan \(14\.2 pts\)/);
+    assert.match(mine[1].body, /Half League: Bijan Robinson is out → no healthy RB on your bench/);
     assert.match(mine[1].body, /Kickoff Sun 1:00 PM/);
     // The next check: nothing new
     await runReminders(env, { ...ctx, newBoone: false, now: kickoff - 1 * 3600e3 });
     assert.equal(pushesTo(phone).length, 2);
-  } finally { state.injuries = {}; }
+  } finally { state.injuries = {}; state.bench = []; }
+});
+
+test("waiver tips: Tuesday, free agents ranked above one of my starters, once a day", async () => {
+  const { waiverDay } = await import("../worker/src/reminders.js");
+  assert.equal(waiverDay(Date.parse("2026-11-03T16:00:00Z")), "2026-11-03"); // Tue 11 AM ET
+  assert.equal(waiverDay(Date.parse("2026-11-03T13:00:00Z")), null);         // Tue 8 AM ET: too early
+  assert.equal(waiverDay(Date.parse("2026-11-04T16:00:00Z")), null);         // Wednesday
+  const env = newEnv(), phone = await device(), off = await device();
+  await db.ensureSchema(env.DB);
+  await db.saveSub(env.DB, { endpoint: phone.endpoint, ...phone.keys, sleeperUsername: "aj", prefs: { rankings: false, lineup: false } });
+  await db.saveSub(env.DB, { endpoint: off.endpoint, ...off.keys, sleeperUsername: "aj", prefs: { waivers: false } });
+  const tue = Date.parse("2026-11-03T16:00:00Z"), ctx = { season: "2026", week: 10, newBoone: false };
+  await runReminders(env, { ...ctx, now: Date.parse("2026-11-02T16:00:00Z") }); // Monday: nothing
+  assert.equal(pushesTo(phone).length, 0);
+  await runReminders(env, { ...ctx, now: tue });
+  const msgs = await Promise.all(pushesTo(phone).map((p) => phone.decrypt(p.body)));
+  assert.equal(msgs.length, 1);
+  assert.match(msgs[0].title, /^Waiver tips?: /);
+  for (const line of msgs[0].body.split("\n")) assert.match(line, /^(Sleeper|Half) League: .+ \((QB|RB|WR|TE), rest of season #\d+\) over your starter .+$/);
+  // Never someone already on a roster
+  for (const taken of ["Jaxon Smith-Njigba", "Kenneth Walker", "Justin Jefferson", "Jalen Coker", "Drake Maye", "Josh Allen"]) assert.ok(!msgs[0].body.includes(taken + " ("), taken);
+  assert.equal(msgs[0].url, "./#fa");
+  assert.equal(pushesTo(off).length, 0, "this device turned waiver tips off");
+  await runReminders(env, { ...ctx, now: tue + 3 * 3600e3 }); // later the same Tuesday: already sent
+  assert.equal(pushesTo(phone).length, 1);
 });

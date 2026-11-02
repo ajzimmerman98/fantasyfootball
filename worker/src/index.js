@@ -168,7 +168,7 @@ async function handle(request, env) {
       const sub = b && b.subscription;
       if (!sub || !validSubscription(sub)) throw new HttpError(400, "Not a valid push subscription.");
       if (!(await store.getSub(db, sub.endpoint)) && (await store.countSubs(db)) >= 200) throw new HttpError(429, "Too many devices signed up.");
-      const prefs = { rankings: b.prefs?.rankings !== false, lineup: b.prefs?.lineup !== false };
+      const prefs = { rankings: b.prefs?.rankings !== false, lineup: b.prefs?.lineup !== false, waivers: b.prefs?.waivers !== false };
       await store.saveSub(db, { endpoint: sub.endpoint, p256dh: sub.keys.p256dh, auth: sub.keys.auth,
         sleeperUsername: typeof b.sleeperUsername === "string" ? b.sleeperUsername.trim().slice(0, 64) : null, prefs, tz: typeof b.tz === "string" ? b.tz.slice(0, 64) : null });
       return json({ ok: true, prefs });
