@@ -14,6 +14,15 @@ Public (Boone's published data):
 | `GET /rankings/status?season&week` | `{ latestPub }`: when Boone last published or updated that week's rankings. |
 | `GET /health` | `{ ok, db, accessCode }`: whether the database and access code are set up. |
 
+Reminders (no account; a device signs up with its push subscription and a Sleeper username):
+
+| Endpoint | What it does |
+|---|---|
+| `GET /push/key` | The Worker's public push key (created on first use and stored in D1, so there's nothing to set up). |
+| `POST /push/subscribe` | `{ subscription, sleeperUsername, prefs: { rankings, lineup }, tz }`. Only Apple, Google, Mozilla and Microsoft push services are accepted. |
+| `POST /push/unsubscribe` | `{ endpoint }` |
+| `POST /push/test` | `{ endpoint }`: sends a test notification to that device (at most every 30 seconds). |
+
 Private (send `Authorization: Bearer <ACCESS_CODE>`):
 
 | Endpoint | What it does |
@@ -24,11 +33,11 @@ Private (send `Authorization: Bearer <ACCESS_CODE>`):
 | `DELETE /me/builds/:id` | Delete one build. |
 | `GET /me/espn?season` | Your ESPN leagues (IDs saved in profile `settings.espnLeagues`), converted to the app's Sleeper-style league shape: slots, scoring, every team's roster and current lineup. |
 
-A cron trigger runs every 3 hours and saves new versions of the weekly rankings from every source (PPR and half-PPR) and the week's trade value charts, so "expired" works even when the app isn't open.
+A cron trigger runs every 3 hours. It sends reminders (`src/reminders.js`): a notice when Justin Boone's new weekly rankings are saved (at most once every 12 hours), and lineup problems (a Sleeper starter who's out, doubtful, on IR, suspended or on bye, or an empty spot) within about 4 hours of the kickoff that matters, each once. It also saves new versions of the weekly rankings from every source (PPR and half-PPR) and the week's trade value charts, so "expired" works even when the app isn't open.
 
 ## Database
 
-D1 database `boone-db`, bound as `DB`. Tables are created automatically on first use (`src/db.js`): `profile`, `rankings` (Boone history), `rankings_latest` (newest consensus and rest-of-season lists), `trade_values`, `lineup_builds`.
+D1 database `boone-db`, bound as `DB`. Tables are created automatically on first use (`src/db.js`): `settings` (push keys), `push_subs`, `push_sent`, `profile`, `rankings` (Boone history), `rankings_latest` (newest consensus and rest-of-season lists), `trade_values`, `lineup_builds`.
 
 ## Setup
 

@@ -137,6 +137,13 @@ select.full{width:100%;height:44px}
 <div id="out"></div>
 <button class="link" id="refresh">Refresh player data</button>
 <div id="saved"></div>
+<div class="card" id="rem"><h2>🔔 Reminders</h2>
+<div id="rem_note" class="ok"></div>
+<div id="rem_ctl">
+<div class="row"><input id="rem_rank" type="checkbox"><label for="rem_rank" style="margin:0;color:var(--text)">New Justin Boone rankings</label></div>
+<div class="row"><input id="rem_lineup" type="checkbox"><label for="rem_lineup" style="margin:0;color:var(--text)">Lineup problems before kickoff: a starter who's out, doubtful, on IR or on bye, or an empty spot (Sleeper leagues)</label></div>
+<div class="loadrow" style="margin-top:6px"><button id="rem_on" class="mini">Turn on reminders</button><button id="rem_test" class="mini ghost" hidden>Send a test</button><button id="rem_off" class="mini ghost" hidden>Turn off</button></div>
+<div id="rem_msg" class="status"></div></div></div>
 <small>Build my lineups loads this week's rankings from the source you pick: Justin Boone, the FantasyPros consensus of all its experts, or Sleeper projections (ranked by projected points). Each league uses its own PPR or half-PPR scoring (standard scoring leagues use half-PPR). Pts = Sleeper's projected points in each league's own scoring. Sleeper's API is read-only, so make the swaps in the Sleeper app. Each player shows his kickoff and, for outdoor games, weather flags (same sources as the Weather tab). Once a game starts its players are locked: starters stay put and bench players can't come in. Unranked players are usually on bye. TV = rest-of-season trade value for that league's format, from the source picked on the Trades tab.</small>
 </section>
 <section class="panel" id="p_fa" role="tabpanel" aria-labelledby="tb_fa" hidden>
@@ -1547,6 +1554,61 @@ function hiRender(){
 $("hi_go").onclick=()=>hiRun();
 $("hi_league").onchange=()=>hiLoad().catch(e=>$("hi_status").innerHTML=`<span class="err">${esc(e.message)}</span>`);
 $("hi_out").addEventListener("change",e=>{if(e.target.id==="hi_who"){HI.who=e.target.value;hiRender()}if(e.target.id==="hi_dseason"){HI.dseason=+e.target.value;hiRender()}});
+
+// ---------- Reminders (notifications, sent by the Worker on its 3-hour schedule) ----------
+// No account needed: this device signs up with the Sleeper username, whose lineups the Worker checks.
+const pushOK=()=>"serviceWorker" in navigator&&"PushManager" in window&&"Notification" in window&&/^https?:$/.test(location.protocol);
+const isStandalone=()=>matchMedia("(display-mode: standalone)").matches||navigator.standalone===true;
+const isIOS=()=>/iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
+const unb64=x=>Uint8Array.from(atob(x.replace(/-/g,"+").replace(/_/g,"/")+"===".slice((x.length+3)%4)),c=>c.charCodeAt(0));
+async function remSub(){if(!pushOK())return null;return(await navigator.serviceWorker.ready).pushManager.getSubscription()}
+async function remPost(path,body){
+  let r;try{r=await fetch(apiBase()+"/push/"+path,{method:"POST",cache:"no-store",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})}catch(e){throw new Error("Couldn't reach the app's server.")}
+  const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||`Error ${r.status}`);return d;
+}
+const remPrefs=()=>({rankings:$("rem_rank").checked,lineup:$("rem_lineup").checked});
+const remRegister=sub=>remPost("subscribe",{subscription:sub.toJSON(),sleeperUsername:$("user").value.trim(),prefs:remPrefs(),tz:Intl.DateTimeFormat().resolvedOptions().timeZone});
+async function remUI(){
+  const note=$("rem_note"),ctl=$("rem_ctl");
+  if(!pushOK()||(isIOS()&&!isStandalone())){
+    note.textContent=isIOS()?"Get notified when new rankings are out and when a starter is out or on bye. On iPhone, add the app to your Home Screen (Share, then Add to Home Screen), open it from there, and turn reminders on here.":"This browser can't show notifications.";
+    ctl.hidden=true;return}
+  ctl.hidden=false;
+  const on=!!(store.get("rem_on")&&await remSub().catch(()=>null));
+  $("rem_on").hidden=on;$("rem_test").hidden=$("rem_off").hidden=!on;
+  note.textContent=Notification.permission==="denied"?"Notifications are blocked for this app. Allow them in your phone's settings, then turn reminders on.":on?"Reminders are on for this device.":"Get a notification when new rankings are out and when one of your starters is out, doubtful or on bye before kickoff.";
+}
+$("rem_rank").checked=store.get("rem_rank")!=="0";$("rem_lineup").checked=store.get("rem_lineup")!=="0";
+$("rem_on").onclick=async()=>{const m=$("rem_msg");
+  if(!$("user").value.trim()){m.textContent="Enter your Sleeper username first.";return}
+  $("rem_on").disabled=true;m.textContent="Turning on…";
+  try{
+    if(await Notification.requestPermission()!=="granted")throw new Error("Notifications weren't allowed.");
+    let r;try{r=await fetch(apiBase()+"/push/key",{cache:"no-store"})}catch(e){throw new Error("Couldn't reach the app's server.")}
+    const {publicKey,error}=await r.json().catch(()=>({}));if(!publicKey)throw new Error(error||"Reminders aren't available right now.");
+    const reg=await navigator.serviceWorker.ready;let sub=await reg.pushManager.getSubscription();
+    // A subscription made with a different server key can't be reused
+    if(sub&&sub.options?.applicationServerKey&&b64eq(sub.options.applicationServerKey,unb64(publicKey))===false){await sub.unsubscribe();sub=null}
+    sub=sub||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:unb64(publicKey)});
+    await remRegister(sub);store.set("rem_on","1");m.textContent="Reminders are on. Tap Send a test to check.";
+  }catch(e){m.innerHTML=`<span class="err">${esc(e.message)}</span>`}
+  $("rem_on").disabled=false;remUI();
+};
+const b64eq=(a,b)=>{a=new Uint8Array(a);if(a.length!==b.length)return false;return a.every((x,i)=>x===b[i])};
+$("rem_off").onclick=async()=>{const m=$("rem_msg");
+  try{const sub=await remSub();if(sub){await remPost("unsubscribe",{endpoint:sub.endpoint}).catch(()=>{});await sub.unsubscribe()}store.set("rem_on","");m.textContent="Reminders are off for this device."}
+  catch(e){m.innerHTML=`<span class="err">${esc(e.message)}</span>`}
+  remUI();
+};
+$("rem_test").onclick=async()=>{const m=$("rem_msg");
+  try{const sub=await remSub();if(!sub)throw new Error("Turn reminders on first.");m.textContent="Sending…";await remPost("test",{endpoint:sub.endpoint});m.textContent="Test sent. It should appear in a few seconds."}
+  catch(e){m.innerHTML=`<span class="err">${esc(e.message)}</span>`}
+};
+for(const id of ["rem_rank","rem_lineup"])$(id).addEventListener("change",async()=>{store.set(id,$(id).checked?"1":"0");
+  if(store.get("rem_on"))try{const sub=await remSub();if(sub)await remRegister(sub)}catch(e){$("rem_msg").innerHTML=`<span class="err">${esc(e.message)}</span>`}});
+// A new Sleeper username: point this device's reminders at it
+$("user").addEventListener("change",async()=>{if(store.get("rem_on"))try{const sub=await remSub();if(sub)await remRegister(sub)}catch(e){}});
+remUI();
 
 // ---------- Install as an app ----------
 // Service worker (offline start), plus a one-time tip: iPhone/iPad = Share → Add to Home Screen; Android/desktop Chrome = Install button

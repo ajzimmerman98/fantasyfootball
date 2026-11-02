@@ -47,3 +47,13 @@ export async function fetchSleeperList(season, week, key) {
   const { ts, rows } = await projections(season, week);
   return sleeperList(rows, key, ts);
 }
+
+// Player id -> { name, team, inj, pos } from this week's projections (they carry each player's team and injury status)
+export async function sleeperPlayers(season, week) {
+  const { rows } = await projections(season, week), out = {};
+  for (const x of rows) {
+    const p = x.player || {}, pos = p.position || (p.fantasy_positions || [])[0], name = `${p.first_name || ""} ${p.last_name || ""}`.trim();
+    out[x.player_id] = { name: pos === "DEF" ? `${name} D/ST` : name || x.player_id, team: x.team || p.team || (pos === "DEF" ? x.player_id : null), inj: p.injury_status || null, pos };
+  }
+  return out;
+}
