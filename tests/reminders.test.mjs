@@ -1,12 +1,13 @@
 // Reminders: notification encryption and signing (decrypted here as a phone would), sign-up endpoints, and the checks.
-import test from "node:test";
+import test, { after } from "node:test";
 import assert from "node:assert/strict";
-import { newEnv, callWorker } from "./helpers/app.mjs";
+import { newEnv, callWorker, closeBrowser } from "./helpers/app.mjs";
 import { state } from "./helpers/world.mjs";
 import { encryptPayload, validSubscription, b64u, unb64u, vapidKeys } from "../worker/src/push.js";
 import { runReminders } from "../worker/src/reminders.js";
 import * as db from "../worker/src/db.js";
 
+after(closeBrowser); // the last test opens the app in a browser
 const enc = new TextEncoder(), dec = new TextDecoder();
 const hmac = async (k, d) => new Uint8Array(await crypto.subtle.sign("HMAC", await crypto.subtle.importKey("raw", k, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]), d));
 const cat = (...a) => { const o = new Uint8Array(a.reduce((n, x) => n + x.length, 0)); let i = 0; for (const x of a) { o.set(x, i); i += x.length; } return o; };
@@ -114,8 +115,8 @@ test("waiver tips: Tuesday, free agents ranked above one of my starters, once a 
   assert.equal(waiverDay(Date.parse("2026-11-04T16:00:00Z")), null);         // Wednesday
   const env = newEnv(), phone = await device(), off = await device();
   await db.ensureSchema(env.DB);
-  await db.saveSub(env.DB, { endpoint: phone.endpoint, ...phone.keys, sleeperUsername: "aj", prefs: { rankings: false, lineup: false } });
-  await db.saveSub(env.DB, { endpoint: off.endpoint, ...off.keys, sleeperUsername: "aj", prefs: { waivers: false } });
+  await db.saveSub(env.DB, { endpoint: phone.endpoint, ...phone.keys, sleeperUsername: "aj", prefs: { rankings: false, lineup: false, recap: false } });
+  await db.saveSub(env.DB, { endpoint: off.endpoint, ...off.keys, sleeperUsername: "aj", prefs: { waivers: false, recap: false } });
   const tue = Date.parse("2026-11-03T16:00:00Z"), ctx = { season: "2026", week: 10, newBoone: false };
   await runReminders(env, { ...ctx, now: Date.parse("2026-11-02T16:00:00Z") }); // Monday: nothing
   assert.equal(pushesTo(phone).length, 0);
@@ -130,4 +131,45 @@ test("waiver tips: Tuesday, free agents ranked above one of my starters, once a 
   assert.equal(pushesTo(off).length, 0, "this device turned waiver tips off");
   await runReminders(env, { ...ctx, now: tue + 3 * 3600e3 }); // later the same Tuesday: already sent
   assert.equal(pushesTo(phone).length, 1);
+});
+
+test("weekly recap: Tuesday morning, result, record, playoff odds and the change from last week", async () => {
+  const env = newEnv(), phone = await device();
+  await db.ensureSchema(env.DB);
+  await db.saveSub(env.DB, { endpoint: phone.endpoint, ...phone.keys, sleeperUsername: "aj", prefs: { rankings: false, lineup: false, waivers: false }, tz: "America/New_York" });
+  const read = async () => Promise.all(pushesTo(phone).map((p) => phone.decrypt(p.body)));
+  try {
+    state.finalWeeks = [7];
+    // Tuesday 5 AM Eastern: quiet hours, nothing yet
+    await runReminders(env, { season: "2026", week: 8, newBoone: false, now: Date.parse("2026-11-03T10:00:00Z") });
+    assert.equal(pushesTo(phone).length, 0);
+    // Tuesday 8 AM: week 7 (all final) recap
+    await runReminders(env, { season: "2026", week: 8, newBoone: false, now: Date.parse("2026-11-03T13:00:00Z") });
+    let msgs = await read();
+    assert.equal(msgs.length, 1);
+    assert.match(msgs[0].title, /^Week 7: you (won|lost) [\d.]+–[\d.]+$/);
+    assert.match(msgs[0].body, /^Sleeper League: (W|L) [\d.]+–[\d.]+ vs Rival FC · 4-3 · playoff odds \d+% · top scorer .+ [\d.]+$/);
+    assert.equal(msgs[0].url, "./#power");
+    // Later the same morning: already sent
+    await runReminders(env, { season: "2026", week: 8, newBoone: false, now: Date.parse("2026-11-03T16:00:00Z") });
+    assert.equal(pushesTo(phone).length, 1);
+    // The next Tuesday: week 8 (not yet in Sleeper's standings, so it's added), with the change in playoff odds
+    state.finalWeeks = [8];
+    await runReminders(env, { season: "2026", week: 9, newBoone: false, now: Date.parse("2026-11-10T13:00:00Z") });
+    msgs = await read();
+    assert.equal(msgs.length, 2);
+    assert.match(msgs[1].body, /^Sleeper League: W 12\.5–8\.1 vs Rival FC · 5-3 · playoff odds \d+% \(▲\d+\)/);
+  } finally { state.finalWeeks = []; }
+});
+
+test("the Worker's playoff simulation matches the app's exactly", async () => {
+  const { openApp } = await import("./helpers/app.mjs");
+  const { simulateSeason } = await import("../worker/src/playoffs.js");
+  const rngSrc = "((a) => () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; })(7)";
+  const input = { teams: [[1, 5, 120, 118], [2, 4, 112, 125], [3, 3, 108, 100], [4, 2, 101, 104], [5, 4, 115, 0], [6, 2, 99, 97]].map(([id, w, mean, now]) => ({ id, w, l: 7 - w, t: 0, pf: mean * 7, mean, meanNow: now || mean, unc: 7 })),
+    weeks: [[[1, 2], [3, 4], [5, 6]], [[1, 3], [2, 5], [4, 6]], [[1, 4], [2, 6], [3, 5]]], nPO: 4, median: true, sims: 3000, me: 2 };
+  const worker = simulateSeason({ ...input, rng: eval(rngSrc) });
+  const { page } = await openApp();
+  const app = await page.evaluate(([inp, src]) => simulateSeason({ ...inp, rng: eval(src) }), [input, rngSrc]);
+  assert.deepEqual(app, JSON.parse(JSON.stringify(worker)));
 });

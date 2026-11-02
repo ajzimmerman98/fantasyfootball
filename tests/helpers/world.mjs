@@ -118,7 +118,8 @@ export function fantasyPros(url) {
 // The Worker's own outgoing fetch (it runs inside the test process). state.fpDown simulates FantasyPros being down.
 // state.pushes records notifications sent to push services; state.injuries adds injury statuses to Sleeper's projections.
 // state.bench adds players to my L1 roster's bench (used by the reminder tests)
-export const state = { fpDown: false, calls: [], pushes: [], injuries: {}, bench: [] };
+// state.finalWeeks: weeks whose NFL games all count as final in the schedule (for the weekly recap)
+export const state = { fpDown: false, calls: [], pushes: [], injuries: {}, bench: [], finalWeeks: [] };
 export async function workerFetch(input, init = {}) {
   const url = String(input instanceof Request ? input.url : input);
   state.calls.push(url);
@@ -126,7 +127,11 @@ export async function workerFetch(input, init = {}) {
     state.pushes.push({ url, headers: init.headers, body: init.body });
     return new Response("", { status: url.includes("/gone") ? 410 : 201 });
   }
-  if (url.startsWith("https://site.api.espn.com/")) return new Response(JSON.stringify(schedule));
+  if (url.startsWith("https://site.api.espn.com/")) {
+    const wk = +new URL(url).searchParams.get("week");
+    if (!state.finalWeeks.includes(wk)) return new Response(JSON.stringify(schedule));
+    return new Response(JSON.stringify({ events: schedule.events.map((e) => ({ ...e, status: { type: { state: "post", shortDetail: "Final" } } })) }));
+  }
   if (url.startsWith("https://partners.fantasypros.com/")) return state.fpDown ? new Response("down", { status: 503 }) : new Response(fantasyPros(url));
   if (url.includes("api.sleeper.app/projections/nfl/")) {
     const rows = JSON.parse(fixtures.projections);

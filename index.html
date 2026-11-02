@@ -142,7 +142,9 @@ select.full{width:100%;height:44px}
 <div id="rem_ctl">
 <div class="row"><input id="rem_rank" type="checkbox"><label for="rem_rank" style="margin:0;color:var(--text)">New Justin Boone rankings</label></div>
 <div class="row"><input id="rem_lineup" type="checkbox"><label for="rem_lineup" style="margin:0;color:var(--text)">Lineup problems before kickoff: a starter who's out, doubtful, on IR or on bye, or an empty spot, with who to start instead (Sleeper leagues)</label></div>
+<div class="row"><input id="rem_recap" type="checkbox"><label for="rem_recap" style="margin:0;color:var(--text)">Weekly recap on Tuesday morning: your results, records, playoff odds and top scorers</label></div>
 <div class="row"><input id="rem_waivers" type="checkbox"><label for="rem_waivers" style="margin:0;color:var(--text)">Waiver tips on Tuesday: free agents ranked above one of your starters (FantasyPros rest of season)</label></div>
+<div class="ok" style="font-size:12px">Nothing is sent between 11 PM and 7 AM; anything due then comes after 7 AM.</div>
 <div class="loadrow" style="margin-top:6px"><button id="rem_on" class="mini">Turn on reminders</button><button id="rem_test" class="mini ghost" hidden>Send a test</button><button id="rem_off" class="mini ghost" hidden>Turn off</button></div>
 <div id="rem_msg" class="status"></div></div></div>
 <small>Build my lineups loads this week's rankings from the source you pick: Justin Boone, the FantasyPros consensus of all its experts, or Sleeper projections (ranked by projected points). Each league uses its own PPR or half-PPR scoring (standard scoring leagues use half-PPR). Pts = Sleeper's projected points in each league's own scoring. Sleeper's API is read-only, so make the swaps in the Sleeper app. Each player shows his kickoff and, for outdoor games, weather flags (same sources as the Weather tab). Once a game starts its players are locked: starters stay put and bench players can't come in. Unranked players are usually on bye. TV = rest-of-season trade value for that league's format, from the source picked on the Trades tab.</small>
@@ -1567,7 +1569,7 @@ async function remPost(path,body){
   let r;try{r=await fetch(apiBase()+"/push/"+path,{method:"POST",cache:"no-store",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})}catch(e){throw new Error("Couldn't reach the app's server.")}
   const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||`Error ${r.status}`);return d;
 }
-const remPrefs=()=>({rankings:$("rem_rank").checked,lineup:$("rem_lineup").checked,waivers:$("rem_waivers").checked});
+const remPrefs=()=>({rankings:$("rem_rank").checked,lineup:$("rem_lineup").checked,waivers:$("rem_waivers").checked,recap:$("rem_recap").checked});
 const remRegister=sub=>remPost("subscribe",{subscription:sub.toJSON(),sleeperUsername:$("user").value.trim(),prefs:remPrefs(),tz:Intl.DateTimeFormat().resolvedOptions().timeZone});
 async function remUI(){
   const note=$("rem_note"),ctl=$("rem_ctl");
@@ -1577,9 +1579,9 @@ async function remUI(){
   ctl.hidden=false;
   const on=!!(store.get("rem_on")&&await remSub().catch(()=>null));
   $("rem_on").hidden=on;$("rem_test").hidden=$("rem_off").hidden=!on;
-  note.textContent=Notification.permission==="denied"?"Notifications are blocked for this app. Allow them in your phone's settings, then turn reminders on.":on?"Reminders are on for this device.":"Get a notification when new rankings are out, when one of your starters is out, doubtful or on bye before kickoff, and for waiver pickups on Tuesday.";
+  note.textContent=Notification.permission==="denied"?"Notifications are blocked for this app. Allow them in your phone's settings, then turn reminders on.":on?"Reminders are on for this device.":"Get a notification when new rankings are out, when one of your starters is out, doubtful or on bye before kickoff, plus a weekly recap and waiver pickups on Tuesday.";
 }
-$("rem_rank").checked=store.get("rem_rank")!=="0";$("rem_lineup").checked=store.get("rem_lineup")!=="0";$("rem_waivers").checked=store.get("rem_waivers")!=="0";
+$("rem_rank").checked=store.get("rem_rank")!=="0";$("rem_lineup").checked=store.get("rem_lineup")!=="0";$("rem_waivers").checked=store.get("rem_waivers")!=="0";$("rem_recap").checked=store.get("rem_recap")!=="0";
 $("rem_on").onclick=async()=>{const m=$("rem_msg");
   if(!$("user").value.trim()){m.textContent="Enter your Sleeper username first.";return}
   $("rem_on").disabled=true;m.textContent="Turning on…";
@@ -1605,7 +1607,7 @@ $("rem_test").onclick=async()=>{const m=$("rem_msg");
   try{const sub=await remSub();if(!sub)throw new Error("Turn reminders on first.");m.textContent="Sending…";await remPost("test",{endpoint:sub.endpoint});m.textContent="Test sent. It should appear in a few seconds."}
   catch(e){m.innerHTML=`<span class="err">${esc(e.message)}</span>`}
 };
-for(const id of ["rem_rank","rem_lineup","rem_waivers"])$(id).addEventListener("change",async()=>{store.set(id,$(id).checked?"1":"0");
+for(const id of ["rem_rank","rem_lineup","rem_recap","rem_waivers"])$(id).addEventListener("change",async()=>{store.set(id,$(id).checked?"1":"0");
   if(store.get("rem_on"))try{const sub=await remSub();if(sub)await remRegister(sub)}catch(e){$("rem_msg").innerHTML=`<span class="err">${esc(e.message)}</span>`}});
 // A new Sleeper username: point this device's reminders at it
 $("user").addEventListener("change",async()=>{if(store.get("rem_on"))try{const sub=await remSub();if(sub)await remRegister(sub)}catch(e){}});
