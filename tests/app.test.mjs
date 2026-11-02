@@ -150,7 +150,7 @@ test("sync section is hidden unless opened with ?owner", async () => {
 test("install as an app: manifest, icons and offline start", async () => {
   const http = await import("node:http"), fs = await import("node:fs"), path = await import("node:path");
   const { ROOT } = await import("./helpers/world.mjs"), { launch } = await import("./helpers/app.mjs");
-  const types = { ".html": "text/html", ".js": "text/javascript", ".webmanifest": "application/manifest+json", ".png": "image/png" };
+  const types = { ".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".webmanifest": "application/manifest+json", ".png": "image/png" };
   const server = http.createServer((req, res) => {
     const f = path.join(ROOT, decodeURIComponent(new URL(req.url, "http://x").pathname).replace(/\/$/, "/index.html"));
     if (!f.startsWith(ROOT) || !fs.existsSync(f)) { res.writeHead(404); return res.end(); }
@@ -174,6 +174,9 @@ test("install as an app: manifest, icons and offline start", async () => {
     await ctx.setOffline(true);
     await page.reload();
     assert.equal(await page.title(), "Boone Lineups");
+    // The styles and every script file came from the saved copy too
+    assert.equal(await page.evaluate(() => typeof showTab === "function" && typeof simulateSeason === "function"), true);
+    assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector(".tabs")).display), "grid");
   } finally { await ctx.close(); server.close(); }
 });
 
