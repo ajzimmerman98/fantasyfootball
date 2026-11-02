@@ -173,3 +173,16 @@ test("the Worker's playoff simulation matches the app's exactly", async () => {
   const app = await page.evaluate(([inp, src]) => simulateSeason({ ...inp, rng: eval(src) }), [input, rngSrc]);
   assert.deepEqual(app, JSON.parse(JSON.stringify(worker)));
 });
+
+test("muted leagues are left out of lineup alerts", async () => {
+  const env = newEnv(), phone = await device();
+  await db.ensureSchema(env.DB);
+  await db.saveSub(env.DB, { endpoint: phone.endpoint, ...phone.keys, sleeperUsername: "aj", prefs: { rankings: false, recap: false, waivers: false, muted: ["L2"] }, tz: "America/New_York" });
+  state.injuries = { "1": "Out" };
+  try {
+    await runReminders(env, { season: "2026", week: 11, newBoone: false, now: Date.parse("2026-11-01T16:00:00Z") });
+    const [msg] = await Promise.all(pushesTo(phone).map((p) => phone.decrypt(p.body)));
+    assert.match(msg.body, /Sleeper League: Bijan Robinson is out/);
+    assert.doesNotMatch(msg.body, /Half League/);
+  } finally { state.injuries = {}; }
+});

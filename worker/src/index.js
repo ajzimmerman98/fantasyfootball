@@ -67,11 +67,21 @@ async function tradeValues(env, fresh) {
 }
 
 const fcMemo = new Map(); // format key -> { ts, data }
-async function fantasyCalc(q) {
+let weekMemo = null; // { ts, p: Promise<{season, week}> }
+const currentWeek = () => { if (!weekMemo || Date.now() - weekMemo.ts > 3600e3) { const p = sleeperWeek(); weekMemo = { ts: Date.now(), p }; p.catch(() => { weekMemo = null; }); } return weekMemo.p; };
+// FantasyCalc values for a format. The first copy each week is kept in D1, and the previous week's copy comes back
+// as `prev` so the app can show week-over-week trends.
+async function fantasyCalc(q, env) {
   const fmt = fcFormat(q), key = `${fmt.ppr}|${fmt.qbs}|${fmt.teams}`, m = fcMemo.get(key);
   if (m && Date.now() - m.ts < TV_CACHE_MS) return m.data;
   try {
     const data = await loadFantasyCalc(fmt);
+    if (env.DB) await (async () => {
+      await store.ensureSchema(env.DB);
+      const { season, week } = await currentWeek();
+      await store.saveFcWeek(env.DB, season, week, key, data.players);
+      data.prev = await store.prevFcWeek(env.DB, season, week, key);
+    })().catch(() => {});
     fcMemo.set(key, { ts: Date.now(), data });
     return data;
   } catch (e) {
@@ -136,7 +146,7 @@ async function handle(request, env) {
 
   if (path === "/health") return json({ ok: true, db: !!env.DB, accessCode: !!env.ACCESS_CODE });
   if (path === "/trade-values" && m === "GET") return json(await tradeValues(env, url.searchParams.has("refresh")), 200, "public, max-age=300");
-  if (path === "/trade-values/fantasycalc" && m === "GET") return json(await fantasyCalc(Object.fromEntries(url.searchParams)), 200, "public, max-age=1800");
+  if (path === "/trade-values/fantasycalc" && m === "GET") return json(await fantasyCalc(Object.fromEntries(url.searchParams), env), 200, "public, max-age=1800");
   if (path === "/rankings" && m === "GET") {
     const { season, week } = await weekParams(url), scoring = url.searchParams.get("scoring") === "HALF" ? "HALF" : "PPR";
     const source = url.searchParams.get("source") || "boone", kind = url.searchParams.get("kind") || "week";
@@ -168,7 +178,8 @@ async function handle(request, env) {
       const sub = b && b.subscription;
       if (!sub || !validSubscription(sub)) throw new HttpError(400, "Not a valid push subscription.");
       if (!(await store.getSub(db, sub.endpoint)) && (await store.countSubs(db)) >= 200) throw new HttpError(429, "Too many devices signed up.");
-      const prefs = { rankings: b.prefs?.rankings !== false, lineup: b.prefs?.lineup !== false, waivers: b.prefs?.waivers !== false, recap: b.prefs?.recap !== false };
+      const muted = Array.isArray(b.prefs?.muted) ? b.prefs.muted.filter((x) => typeof x === "string" && /^[\w:-]{1,40}$/.test(x)).slice(0, 50) : [];
+      const prefs = { rankings: b.prefs?.rankings !== false, lineup: b.prefs?.lineup !== false, waivers: b.prefs?.waivers !== false, recap: b.prefs?.recap !== false, muted };
       await store.saveSub(db, { endpoint: sub.endpoint, p256dh: sub.keys.p256dh, auth: sub.keys.auth,
         sleeperUsername: typeof b.sleeperUsername === "string" ? b.sleeperUsername.trim().slice(0, 64) : null, prefs, tz: typeof b.tz === "string" ? b.tz.slice(0, 64) : null });
       return json({ ok: true, prefs });
@@ -230,6 +241,15 @@ export async function scheduled(env, now = Date.now()) {
     }
   } catch (e) { out.errors.push(`week: ${e.message}`); }
   try { const d = await tradeValues(env, true); out.tradeValues = d.week; } catch (e) { out.errors.push(`trade values: ${e.message}`); }
+  // FantasyCalc formats in use: keep their weekly copies going for week-over-week trends
+  if (wk) try {
+    for (const f of await store.recentFcFormats(env.DB, wk.season, wk.week)) { const [ppr, qbs, teams] = f.split("|"); await fantasyCalc({ ppr, qbs, teams }, env); }
+  } catch (e) { out.errors.push(`fantasycalc history: ${e.message}`); }
+  // Once a day: trim data nothing uses any more
+  if (wk) try {
+    const day = new Date(now).toISOString().slice(0, 10);
+    if ((await store.getSetting(env.DB, "trim_day")) !== day) { out.trimmed = await store.trim(env.DB, wk.season, wk.week, now); await store.setSetting(env.DB, "trim_day", day); }
+  } catch (e) { out.errors.push(`trim: ${e.message}`); }
   // Reminders: new Justin Boone rankings (a new version saved just now) and lineup problems before kickoff
   if (wk) try {
     const newBoone = Object.entries(out.rankings).some(([k, v]) => k.startsWith("boone:") && v === true);

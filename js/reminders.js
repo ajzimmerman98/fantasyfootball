@@ -11,7 +11,18 @@ async function remPost(path,body){
   let r;try{r=await fetch(apiBase()+"/push/"+path,{method:"POST",cache:"no-store",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})}catch(e){throw new Error("Couldn't reach the app's server.")}
   const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||`Error ${r.status}`);return d;
 }
-const remPrefs=()=>({rankings:$("rem_rank").checked,lineup:$("rem_lineup").checked,waivers:$("rem_waivers").checked,recap:$("rem_recap").checked});
+// Leagues switched off here are skipped for lineup alerts, the recap and waiver tips
+const remMuted=()=>{try{return JSON.parse(store.get("rem_muted")||"[]")}catch(e){return[]}};
+function remLeaguesUI(){
+  let lgs=[];try{lgs=JSON.parse(store.get("rem_leagues")||"[]")}catch(e){}
+  const muted=new Set(remMuted());
+  $("rem_lg").innerHTML=lgs.length>1?`<div class="ok" style="margin:8px 0 2px">Leagues (lineup alerts, recap and waiver tips):</div>`+
+    lgs.map(l=>`<div class="row" style="margin:4px 0"><input type="checkbox" id="rem_lg_${esc(l.id)}" data-lg="${esc(l.id)}"${muted.has(l.id)?"":" checked"}><label for="rem_lg_${esc(l.id)}" style="margin:0;color:var(--text)">${esc(l.name)}</label></div>`).join(""):"";
+}
+$("rem_lg").addEventListener("change",async e=>{const id=e.target.dataset.lg;if(!id)return;
+  const m=new Set(remMuted());e.target.checked?m.delete(id):m.add(id);store.set("rem_muted",JSON.stringify([...m]));
+  if(store.get("rem_on"))try{const sub=await remSub();if(sub)await remRegister(sub)}catch(err){$("rem_msg").innerHTML=`<span class="err">${esc(err.message)}</span>`}});
+const remPrefs=()=>({rankings:$("rem_rank").checked,lineup:$("rem_lineup").checked,waivers:$("rem_waivers").checked,recap:$("rem_recap").checked,muted:remMuted()});
 const remRegister=sub=>remPost("subscribe",{subscription:sub.toJSON(),sleeperUsername:$("user").value.trim(),prefs:remPrefs(),tz:Intl.DateTimeFormat().resolvedOptions().timeZone});
 async function remUI(){
   const note=$("rem_note"),ctl=$("rem_ctl");
@@ -53,5 +64,5 @@ for(const id of ["rem_rank","rem_lineup","rem_recap","rem_waivers"])$(id).addEve
   if(store.get("rem_on"))try{const sub=await remSub();if(sub)await remRegister(sub)}catch(e){$("rem_msg").innerHTML=`<span class="err">${esc(e.message)}</span>`}});
 // A new Sleeper username: point this device's reminders at it
 $("user").addEventListener("change",async()=>{if(store.get("rem_on"))try{const sub=await remSub();if(sub)await remRegister(sub)}catch(e){}});
-remUI();
+remLeaguesUI();remUI();
 

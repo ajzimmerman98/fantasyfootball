@@ -50,6 +50,7 @@
 <div class="row"><input id="rem_lineup" type="checkbox"><label for="rem_lineup" style="margin:0;color:var(--text)">Lineup problems before kickoff: a starter who's out, doubtful, on IR or on bye, or an empty spot, with who to start instead (Sleeper leagues)</label></div>
 <div class="row"><input id="rem_recap" type="checkbox"><label for="rem_recap" style="margin:0;color:var(--text)">Weekly recap on Tuesday morning: your results, records, playoff odds and top scorers</label></div>
 <div class="row"><input id="rem_waivers" type="checkbox"><label for="rem_waivers" style="margin:0;color:var(--text)">Waiver tips on Tuesday: free agents ranked above one of your starters (FantasyPros rest of season)</label></div>
+<div id="rem_lg"></div>
 <div class="ok" style="font-size:12px">Nothing is sent between 11 PM and 7 AM; anything due then comes after 7 AM.</div>
 <div class="loadrow" style="margin-top:6px"><button id="rem_on" class="mini">Turn on reminders</button><button id="rem_test" class="mini ghost" hidden>Send a test</button><button id="rem_off" class="mini ghost" hidden>Turn off</button></div>
 <div id="rem_msg" class="status"></div></div></div>
@@ -69,6 +70,7 @@
 </section>
 <section class="panel" id="p_trade" role="tabpanel" aria-labelledby="tb_trade" hidden>
 <label for="tr_vsrc">Trade values</label><select id="tr_vsrc" class="full"><option value="boone">Justin Boone's chart</option><option value="fc">FantasyCalc (based on real trades)</option><option value="avg">Average of Justin Boone and FantasyCalc</option></select>
+<label for="tr_trend">Trend arrows</label><select id="tr_trend" class="full"><option value="value">Change in value since last week</option><option value="rank">Change in rank at the position since last week</option></select>
 <div class="loadrow"><button id="tr_go">Load leagues &amp; trade values</button></div>
 <div id="tr_status" class="status"></div>
 <div id="tr_warn" class="fwarn" hidden></div>
@@ -82,7 +84,7 @@
 <div class="card"><h2>You get</h2><div id="tr_theirs"></div></div>
 <div id="tr_sum" class="tsum"></div>
 </div>
-<small id="tr_src">Boone's values come from Justin Boone's rest-of-season trade value charts on Yahoo. FantasyCalc's come from real fantasy trades, rescaled so its top player is 100 (close to Boone's scale). ▲/▼ = change since Justin Boone's previous weekly chart, or FantasyCalc's 30-day change. Each league uses its own format: PPR, half-PPR or standard, 1QB or superflex, and (for FantasyCalc) its number of teams. The same choice sets the TV numbers on the Lineup tab.</small>
+<small id="tr_src">Boone's values come from Justin Boone's rest-of-season trade value charts on Yahoo. FantasyCalc's come from real fantasy trades, rescaled so its top player is 100 (close to Boone's scale). ▲/▼ = change since last week: Justin Boone's previous weekly chart, or last week's FantasyCalc values (until a week of history is saved, FantasyCalc's own 30-day change). Rank mode shows the position rank and places moved; ranks are Justin Boone's own, or by value for FantasyCalc. Each league uses its own format: PPR, half-PPR or standard, 1QB or superflex, and (for FantasyCalc) its number of teams. The same choice sets the TV numbers on the Lineup tab.</small>
 </section>
 <section class="panel" id="p_power" role="tabpanel" aria-labelledby="tb_power" hidden>
 <label for="pw_src">Rank teams by</label>
