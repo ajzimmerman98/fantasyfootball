@@ -73,7 +73,7 @@ export function sleeper(pathname) {
   if (p === "/state/nfl") return { season: SEASON, week: WEEK, display_week: WEEK, season_type: "regular" };
   if (p.startsWith("/user/") && p.includes("/leagues/")) return leagues;
   if (p.startsWith("/user/")) return { user_id: "U1" };
-  if (p === "/players/nfl") return players;
+  if (p === "/players/nfl") return Object.fromEntries(Object.entries(players).map(([id, x]) => [id, state.injuries[id] ? { ...x, injury_status: state.injuries[id] } : x]));
   if (p === "/players/nfl/trending/add") return [{ player_id: "30", count: 12345 }, { player_id: "31", count: 800 }];
   if ((m = p.match(/^\/league\/(L\d)\/rosters$/))) return m[1] === "L1" && state.bench.length ? rosters.L1.map((r) => r.roster_id === 1 ? { ...r, players: [...r.players, ...state.bench] } : r) : rosters[m[1]];
   if ((m = p.match(/^\/league\/(L\d)\/users$/))) return users[m[1]];
