@@ -10,6 +10,12 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS trade_values (season INTEGER NOT NULL, week INTEGER NOT NULL, pos TEXT NOT NULL, published TEXT, fetched_at TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY (season, week, pos))`,
   `CREATE TABLE IF NOT EXISTS lineup_builds (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, season INTEGER, week INTEGER, league_id TEXT, league_name TEXT, scoring TEXT, rankings_pub INTEGER, source TEXT, result TEXT NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS lineup_builds_created ON lineup_builds (created_at)`,
+  // Small settings (the Worker's push keys, last rankings notice)
+  `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`,
+  // Devices signed up for reminders (no account needed: the Sleeper username says whose lineups to check)
+  `CREATE TABLE IF NOT EXISTS push_subs (endpoint TEXT PRIMARY KEY, p256dh TEXT NOT NULL, auth TEXT NOT NULL, sleeper_username TEXT, prefs TEXT, tz TEXT, created_at TEXT NOT NULL, last_test_at INTEGER)`,
+  // Reminders already sent to a device (so each problem is sent once)
+  `CREATE TABLE IF NOT EXISTS push_sent (endpoint TEXT NOT NULL, key TEXT NOT NULL, sent_at TEXT NOT NULL, PRIMARY KEY (endpoint, key))`,
   // One saved build per league, rankings source and scoring (the latest). Older rule was one per league.
   `DROP INDEX IF EXISTS lineup_builds_league`,
   `DELETE FROM lineup_builds WHERE league_id IS NOT NULL AND id NOT IN (SELECT MAX(id) FROM lineup_builds WHERE league_id IS NOT NULL GROUP BY league_id, IFNULL(source, ''), IFNULL(scoring, ''))`,
@@ -121,4 +127,40 @@ export async function listBuilds(db, limit = 30) {
 export async function deleteBuild(db, id) {
   const r = await db.prepare(`DELETE FROM lineup_builds WHERE id = ?`).bind(id).run();
   return (r.meta?.changes || 0) > 0;
+}
+
+// ---- Settings ----
+export async function getSetting(db, key) { return (await db.prepare(`SELECT value FROM settings WHERE key = ?`).bind(key).first())?.value ?? null; }
+export async function setSetting(db, key, value) {
+  await db.prepare(`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).bind(key, value).run();
+}
+
+// ---- Reminder sign-ups ----
+export async function saveSub(db, { endpoint, p256dh, auth, sleeperUsername, prefs, tz }) {
+  await db.prepare(`INSERT INTO push_subs (endpoint, p256dh, auth, sleeper_username, prefs, tz, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth, sleeper_username = excluded.sleeper_username, prefs = excluded.prefs, tz = excluded.tz`)
+    .bind(endpoint, p256dh, auth, sleeperUsername || null, JSON.stringify(prefs || {}), tz || null, now()).run();
+}
+export async function getSub(db, endpoint) {
+  const r = await db.prepare(`SELECT * FROM push_subs WHERE endpoint = ?`).bind(endpoint).first();
+  return r ? { ...r, prefs: JSON.parse(r.prefs || "{}") } : null;
+}
+export async function listSubs(db) {
+  const { results } = await db.prepare(`SELECT * FROM push_subs`).all();
+  return results.map((r) => ({ ...r, prefs: JSON.parse(r.prefs || "{}") }));
+}
+export async function countSubs(db) { return (await db.prepare(`SELECT COUNT(*) AS n FROM push_subs`).first()).n; }
+export async function removeSub(db, endpoint) {
+  await db.batch([db.prepare(`DELETE FROM push_subs WHERE endpoint = ?`).bind(endpoint), db.prepare(`DELETE FROM push_sent WHERE endpoint = ?`).bind(endpoint)]);
+}
+export async function touchTest(db, endpoint, at) { await db.prepare(`UPDATE push_subs SET last_test_at = ? WHERE endpoint = ?`).bind(at, endpoint).run(); }
+// Which of these reminder keys haven't been sent to this device yet
+export async function unsent(db, endpoint, keys) {
+  if (!keys.length) return new Set();
+  const { results } = await db.prepare(`SELECT key FROM push_sent WHERE endpoint = ? AND key IN (${keys.map(() => "?").join(",")})`).bind(endpoint, ...keys).all();
+  const sent = new Set(results.map((r) => r.key));
+  return new Set(keys.filter((k) => !sent.has(k)));
+}
+export async function markSent(db, endpoint, keys) {
+  if (keys.length) await db.batch(keys.map((k) => db.prepare(`INSERT OR IGNORE INTO push_sent (endpoint, key, sent_at) VALUES (?, ?, ?)`).bind(endpoint, k, now())));
 }

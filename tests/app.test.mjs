@@ -246,3 +246,11 @@ test("playoff odds card on the Power Rankings tab", async () => {
   assert.ok(Math.abs(odds[0] + odds[1] - 100) <= 1, "one playoff spot: odds add up to 100%");
   assert.deepEqual(errors, []);
 });
+
+test("reminders card: explains what's needed when this browser can't get notifications", async () => {
+  const { page, errors } = await openApp();
+  assert.match(await text(page, "#rem"), /🔔 Reminders/);
+  assert.match(await text(page, "#rem_note"), /can't show notifications|Home Screen/);
+  assert.ok(await page.$eval("#rem_ctl", (e) => e.hidden));
+  assert.deepEqual(errors, []);
+});

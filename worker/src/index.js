@@ -16,7 +16,8 @@
 //   POST /me/builds                         Save builds: { builds: [...] }
 //   DELETE /me/builds/:id
 //   GET  /me/espn?season                    Your ESPN leagues (ids from profile settings.espnLeagues), in the app's league shape
-// Scheduled every 3 hours: save new versions of the weekly rankings from every source (Boone, FantasyPros consensus, Sleeper projections), and the week's trade value charts.
+//   GET  /push/key · POST /push/subscribe · POST /push/unsubscribe · POST /push/test   Reminder sign-ups (see reminders.js)
+// Scheduled every 3 hours: send reminders; save new versions of the weekly rankings from every source (Boone, FantasyPros consensus, Sleeper projections), and the week's trade value charts.
 //
 // Bindings: DB (D1). Secrets: ACCESS_CODE; ESPN_S2 and ESPN_SWID (ESPN login cookies, for private leagues).
 
@@ -25,6 +26,8 @@ import { loadFantasyCalc, fcFormat } from "./fantasycalc.js";
 import { fetchList, sleeperWeek, appLists, SOURCES, KINDS } from "./rankings.js";
 import * as store from "./db.js";
 import { fetchLeague } from "./espn.js";
+import { vapidKeys, validSubscription, sendPush } from "./push.js";
+import { runReminders } from "./reminders.js";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -153,6 +156,36 @@ async function handle(request, env) {
     return json({ season, week, latestPub: pub || null });
   }
 
+  // Reminder sign-ups. No account: a device signs up with its push subscription and a Sleeper username.
+  // Only the browser vendors' push services are accepted as endpoints (validSubscription).
+  if (path.startsWith("/push/")) {
+    if (!env.DB) throw new HttpError(503, "The D1 database isn't connected to the Worker yet.");
+    const db = env.DB;
+    await store.ensureSchema(db);
+    if (path === "/push/key" && m === "GET") return json({ publicKey: (await vapidKeys(db)).publicKey });
+    const b = m === "POST" ? await readJson(request) : null;
+    if (path === "/push/subscribe" && m === "POST") {
+      const sub = b && b.subscription;
+      if (!sub || !validSubscription(sub)) throw new HttpError(400, "Not a valid push subscription.");
+      if (!(await store.getSub(db, sub.endpoint)) && (await store.countSubs(db)) >= 200) throw new HttpError(429, "Too many devices signed up.");
+      const prefs = { rankings: b.prefs?.rankings !== false, lineup: b.prefs?.lineup !== false };
+      await store.saveSub(db, { endpoint: sub.endpoint, p256dh: sub.keys.p256dh, auth: sub.keys.auth,
+        sleeperUsername: typeof b.sleeperUsername === "string" ? b.sleeperUsername.trim().slice(0, 64) : null, prefs, tz: typeof b.tz === "string" ? b.tz.slice(0, 64) : null });
+      return json({ ok: true, prefs });
+    }
+    if (path === "/push/unsubscribe" && m === "POST") { if (b && typeof b.endpoint === "string") await store.removeSub(db, b.endpoint); return json({ ok: true }); }
+    if (path === "/push/test" && m === "POST") {
+      const s = b && typeof b.endpoint === "string" ? await store.getSub(db, b.endpoint) : null;
+      if (!s) throw new HttpError(404, "This device isn't signed up for reminders.");
+      if (s.last_test_at && Date.now() - s.last_test_at < 30e3) throw new HttpError(429, "Wait a few seconds before sending another test.");
+      await store.touchTest(db, s.endpoint, Date.now());
+      const r = await sendPush({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, { title: "Reminders are on", body: "You'll hear about new Justin Boone rankings and lineup problems before kickoff.", url: "./#lineup", tag: "test" }, await vapidKeys(db));
+      if (r === "gone") { await store.removeSub(db, s.endpoint); throw new HttpError(410, "This device's notifications were turned off. Turn reminders on again."); }
+      if (r !== "ok") throw new HttpError(502, "The notification service didn't accept the test.");
+      return json({ ok: true });
+    }
+  }
+
   if (path.startsWith("/me/")) {
     authorize(request, env);
     const db = env.DB;
@@ -184,18 +217,24 @@ async function handle(request, env) {
   return json({ error: "Not found" }, 404);
 }
 
-export async function scheduled(env) {
-  const out = { rankings: {}, tradeValues: null, errors: [] };
+export async function scheduled(env, now = Date.now()) {
+  const out = { rankings: {}, tradeValues: null, reminders: null, errors: [] };
   if (!env.DB) return out;
   await store.ensureSchema(env.DB);
+  let wk = null;
   try {
-    const { season, week } = await sleeperWeek();
+    wk = await sleeperWeek();
     for (const source of SOURCES) for (const key of ["QB", "FLEX:PPR", "FLEX:HALF", "K", "DEF"]) {
-      try { out.rankings[`${source}:${key}`] = await save(env.DB, season, week, await fetchList(season, week, key, source)); }
+      try { out.rankings[`${source}:${key}`] = await save(env.DB, wk.season, wk.week, await fetchList(wk.season, wk.week, key, source)); }
       catch (e) { out.errors.push(`${source} ${key}: ${e.message}`); }
     }
   } catch (e) { out.errors.push(`week: ${e.message}`); }
   try { const d = await tradeValues(env, true); out.tradeValues = d.week; } catch (e) { out.errors.push(`trade values: ${e.message}`); }
+  // Reminders: new Justin Boone rankings (a new version saved just now) and lineup problems before kickoff
+  if (wk) try {
+    const newBoone = Object.entries(out.rankings).some(([k, v]) => k.startsWith("boone:") && v === true);
+    out.reminders = await runReminders(env, { ...wk, newBoone, now });
+  } catch (e) { out.errors.push(`reminders: ${e.message}`); }
   return out;
 }
 
@@ -205,6 +244,6 @@ export default {
     catch (e) { return json({ error: e.message }, e.status || 500); }
   },
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(scheduled(env).then((r) => console.log("scheduled", JSON.stringify(r))));
+    ctx.waitUntil(scheduled(env, event.scheduledTime || Date.now()).then((r) => console.log("scheduled", JSON.stringify(r))));
   },
 };

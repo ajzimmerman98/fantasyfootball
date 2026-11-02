@@ -116,12 +116,22 @@ export function fantasyPros(url) {
 }
 
 // The Worker's own outgoing fetch (it runs inside the test process). state.fpDown simulates FantasyPros being down.
-export const state = { fpDown: false, calls: [] };
-export async function workerFetch(input) {
+// state.pushes records notifications sent to push services; state.injuries adds injury statuses to Sleeper's projections.
+export const state = { fpDown: false, calls: [], pushes: [], injuries: {} };
+export async function workerFetch(input, init = {}) {
   const url = String(input instanceof Request ? input.url : input);
   state.calls.push(url);
+  if (/^https:\/\/(web\.push\.apple\.com|fcm\.googleapis\.com)\//.test(url)) {
+    state.pushes.push({ url, headers: init.headers, body: init.body });
+    return new Response("", { status: url.includes("/gone") ? 410 : 201 });
+  }
+  if (url.startsWith("https://site.api.espn.com/")) return new Response(JSON.stringify(schedule));
   if (url.startsWith("https://partners.fantasypros.com/")) return state.fpDown ? new Response("down", { status: 503 }) : new Response(fantasyPros(url));
-  if (url.includes("api.sleeper.app/projections/nfl/")) return new Response(fixtures.projections);
+  if (url.includes("api.sleeper.app/projections/nfl/")) {
+    const rows = JSON.parse(fixtures.projections);
+    for (const r of rows) if (state.injuries[r.player_id]) r.player = { ...r.player, injury_status: state.injuries[r.player_id] };
+    return new Response(JSON.stringify(rows));
+  }
   if (url.includes("api.sleeper.app/")) return new Response(JSON.stringify(sleeper(new URL(url).pathname)));
   if (url.startsWith("https://api.fantasycalc.com/")) return new Response(fixtures.fantasycalc);
   if (url.includes("fantasy.espn.com")) return new Response(JSON.stringify(espnLeague));
