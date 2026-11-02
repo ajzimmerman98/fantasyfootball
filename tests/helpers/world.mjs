@@ -75,7 +75,7 @@ export function sleeper(pathname) {
   if (p.startsWith("/user/")) return { user_id: "U1" };
   if (p === "/players/nfl") return players;
   if (p === "/players/nfl/trending/add") return [{ player_id: "30", count: 12345 }, { player_id: "31", count: 800 }];
-  if ((m = p.match(/^\/league\/(L\d)\/rosters$/))) return rosters[m[1]];
+  if ((m = p.match(/^\/league\/(L\d)\/rosters$/))) return m[1] === "L1" && state.bench.length ? rosters.L1.map((r) => r.roster_id === 1 ? { ...r, players: [...r.players, ...state.bench] } : r) : rosters[m[1]];
   if ((m = p.match(/^\/league\/(L\d)\/users$/))) return users[m[1]];
   if ((m = p.match(/^\/league\/(L\d)\/matchups\/(\d+)$/))) {
     const w = +m[2];
@@ -117,7 +117,8 @@ export function fantasyPros(url) {
 
 // The Worker's own outgoing fetch (it runs inside the test process). state.fpDown simulates FantasyPros being down.
 // state.pushes records notifications sent to push services; state.injuries adds injury statuses to Sleeper's projections.
-export const state = { fpDown: false, calls: [], pushes: [], injuries: {} };
+// state.bench adds players to my L1 roster's bench (used by the reminder tests)
+export const state = { fpDown: false, calls: [], pushes: [], injuries: {}, bench: [] };
 export async function workerFetch(input, init = {}) {
   const url = String(input instanceof Request ? input.url : input);
   state.calls.push(url);
