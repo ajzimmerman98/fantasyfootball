@@ -54,6 +54,16 @@ function render(lg,roster,cur,players,ranks,opts){
     const opp=teamKey(c.team)===g.home?`vs ${g.away}`:`@ ${g.home}`,when=g.state==="pre"?fmtKick(g.date):g.state==="in"?"Locked · in progress":"Locked · final";
     const fl=g.state==="pre"&&g.v?.roof==="open"?wxFlags(g.wx).map(([t,k])=>`<span class="chip ${k}">${esc(t)}</span>`).join(""):"";
     return`<div class="gm">${g.state!=="pre"?"🔒 ":""}${esc(when)} ${esc(opp)}${fl}</div>`};
+  const nw=new Set(line.filter(Boolean).map(c=>c.id)),old=new Set(realIds(starters));
+  // Close calls: rank only compares within one list (QB, FLEX for RB/WR/TE, K, DEF)
+  const listOf=c=>c.pos==="QB"?"QB":["RB","WR","TE"].includes(c.pos)?"FLEX":c.pos;
+  const fits=(slot,pos)=>STRICT.has(slot)?pos===slot:!!FLEX[slot]?.includes(pos);
+  const ranked=c=>c&&c.rp!==Infinity&&!c.out;
+  const close=(a,b)=>ranked(a)&&ranked(b)&&listOf(a)===listOf(b)&&Math.abs(a.rp-b.rp)<=CLOSE_RANKS;
+  const rk=c=>c.out?(c.inj||"out"):c.rp===Infinity?"unranked":rankTxt(c);
+  const ptsOf=c=>{const v=pv(c);return v==null?null:+v};
+  // The bench player closest behind a kept starter (within a few places on the same list), for a "Close call" note
+  const rival=(c,slot)=>cands.filter(b=>!nw.has(b.id)&&!frozen.has(b.id)&&fits(slot,b.pos)&&close(c,b)&&b.rp>=c.rp).sort((x,y)=>x.rp-y.rp)[0];
   let h=`<div class="card"><h2>${esc(lg.name)}</h2>`,mu=null;
   // Matchup preview: projected points of the suggested lineup (and your current one) vs the opponent's set lineup
   if(opts.opp&&opts.pts){const sum=a=>a.reduce((t,v)=>t+(v||0),0),my=sum(line.filter(Boolean).map(pv)),curPts=sum(realIds(starters).map(id=>opts.pts(players[id]))),them=sum(opts.opp.starters.map(id=>opts.pts(players[id])));
@@ -61,8 +71,9 @@ function render(lg,roster,cur,players,ranks,opts){
   slots.forEach((s,i)=>{const c=line[i];
     if(!c){h+=`<div class="slot"><span class="s">${esc(s)}</span><span>Nobody eligible</span><span></span></div>`;return}
     const notes=[];if(opts.games&&!gm(c))notes.push("BYE");else if(c.rp===Infinity&&(ranks[c.pos]||(["RB","WR","TE"].includes(c.pos)&&ranks.FLEX)))notes.push(opts.games?"UNRANKED":"UNRANKED (bye?)");if(c.inj)notes.push(c.inj);
-    h+=`<div class="slot"><span class="s">${esc(s.replace("_"," "))}</span><span>${esc(c.name)} <span class="r">${esc(c.pos)} ${esc(c.team||"")}</span>${tvTag(c)}${notes.length?`<div class="n">${esc(notes.join(", "))}</div>`:""}${gameLine(c)}</span><span class="r">${esc(rankTxt(c))}${ptsHtml(pv(c))}</span></div>`});
-  const nw=new Set(line.filter(Boolean).map(c=>c.id)),old=new Set(realIds(starters));
+    const cc=!fixed[i]&&old.has(c.id)?rival(c,s):null,ccp=cc&&ptsOf(cc);
+    const ccHtml=cc?`<div class="cc">Close call: ${esc(cc.name)} (${esc(rk(cc))}${ccp!=null?` · ${ccp} pts`:""})</div>`:"";
+    h+=`<div class="slot"><span class="s">${esc(s.replace("_"," "))}</span><span>${esc(c.name)} <span class="r">${esc(c.pos)} ${esc(c.team||"")}</span>${tvTag(c)}${notes.length?`<div class="n">${esc(notes.join(", "))}</div>`:""}${gameLine(c)}${ccHtml}</span><span class="r">${esc(rankTxt(c))}${ptsHtml(pv(c))}</span></div>`});
   const hasL=c=>ranks[c.pos]||(["RB","WR","TE"].includes(c.pos)&&ranks.FLEX);
   const tg=c=>c.out?` (${c.inj||"out"})`:!c.pos||!hasL(c)?"":c.rp===Infinity?" (unranked)":` (${c.pr?c.pr+", ":""}#${c.rp})`;
   const byName=(a,b)=>a.name.localeCompare(b.name);
@@ -72,7 +83,7 @@ function render(lg,roster,cur,players,ranks,opts){
   const nLocked=Object.keys(fixed).length;
   if(nLocked)h+=`<div class="ok" style="margin-bottom:4px">🔒 ${nLocked} starter${nLocked>1?"s":""} already playing or done, so ${nLocked>1?"they stay":"he stays"} put.</div>`;
   if(!starts.length&&!sits.length)h+=`<div class="ok">No changes. Your lineup already matches the rankings.</div>`;
-  else{starts.forEach(c=>h+=`<div><span class="start">START</span> ${esc(c.name)}${esc(tg(c))}</div>`);sits.forEach(c=>h+=`<div><span class="sit">SIT</span> ${esc(c.name)}${esc(tg(c))}</div>`)}
+  else h+=`<h3 class="swh">Make these swaps</h3>`+swapsHtml(pairSwaps(starts,sits,{slots,starters,line,gm,fits}),{rk,ptsOf,close});
   h+=`</div>`;
   const bench=cands.filter(c=>!nw.has(c.id)).sort((a,b)=>a.rp===b.rp?a.name.localeCompare(b.name):a.rp<b.rp?-1:1);
   if(bench.length)h+=`<div class="bn"><h3>Bench</h3>`+bench.map(c=>`<div class="slot"><span class="s">BN</span><span>${esc(c.name)} <span class="r">${esc(c.pos)} ${esc(c.team||"")}</span>${tvTag(c)}${c.inj?`<div class="n">${esc(c.inj)}</div>`:""}${gameLine(c)}</span><span class="r">${esc(rankTxt(c))}${ptsHtml(pv(c))}</span></div>`).join("")+`</div>`;
@@ -81,6 +92,29 @@ function render(lg,roster,cur,players,ranks,opts){
     slots:slots.map((s,i)=>{const c=line[i];return c?{slot:s,name:c.name,pos:c.pos,team:c.team||"",rank:rankTxt(c),pts:pv(c)}:{slot:s,name:null}}),
     starts:starts.map(c=>c.name+tg(c)),sits:sits.map(c=>c.name+tg(c))}});
   return h+`</div>`;
+}
+const CLOSE_RANKS=3; // within this many places on the same rankings list counts as a close call
+// Pair each player coming in with one going out (preferring one whose spot he can take), soonest kickoff first
+function pairSwaps(starts,sits,{slots,starters,line,gm,fits}){
+  const kick=c=>{const g=c&&gm(c);return g&&g.state==="pre"?+g.date:Infinity};
+  const outs=sits.map(c=>({c,slot:slots[(starters||[]).indexOf(c.id)]||""})),pairs=[];
+  for(const c of starts.slice().sort((a,b)=>kick(a)-kick(b))){
+    const slot=slots[line.findIndex(x=>x&&x.id===c.id)]||"";
+    let k=outs.findIndex(o=>fits(o.slot,c.pos));if(k<0)k=outs.length?0:-1;
+    const o=k>=0?outs.splice(k,1)[0].c:null;
+    pairs.push({in:c,out:o,slot,at:Math.min(kick(c),kick(o))});
+  }
+  for(const o of outs)pairs.push({in:null,out:o.c,slot:o.slot,at:kick(o.c)});
+  return pairs.sort((a,b)=>a.at-b.at);
+}
+function swapsHtml(pairs,{rk,ptsOf,close}){
+  return pairs.map(p=>{
+    const a=p.in,b=p.out,pa=a&&ptsOf(a),pb=b&&b.pos?ptsOf(b):null,tags=[];
+    if(a&&b&&b.pos&&close(a,b))tags.push(`<span class="cc">close call</span>`);
+    if(a&&b&&pa!=null&&pb!=null&&!b.out&&pa<pb-0.5)tags.push(`<span class="cc">projections favor keeping ${esc(b.name)}</span>`);
+    const head=a&&b?`🔁 <span class="start">Start</span> ${esc(a.name)} · <span class="sit">bench</span> ${esc(b.name)}`:a?`<span class="start">Start</span> ${esc(a.name)} · empty spot`:`<span class="sit">Bench</span> ${esc(b.name)} · nobody eligible to replace him`;
+    const meta=[p.slot.replace("_"," "),isFinite(p.at)?fmtKick(new Date(p.at)):"",a&&b&&b.pos?`${rk(a)} vs ${rk(b)}`:a?rk(a):b.pos?rk(b):"",pa!=null&&pb!=null?`${pa} vs ${pb} pts`:pa!=null?`${pa} pts`:""].filter(Boolean);
+    return`<div class="sw"><div>${head}</div><div class="m">${esc(meta.join(" · "))}${tags.length?" · "+tags.join(" · "):""}</div></div>`}).join("");
 }
 function debugBlock(slots,starters,line,src,players,byId){
   const nm=id=>!id||id==="0"?"(empty)":byId[id]?.name||players[id]?.n||null;

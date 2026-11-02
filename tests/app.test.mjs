@@ -28,8 +28,8 @@ test("lineup: rankings, projected points, matchup preview, kickoff, weather and 
   assert.match(c, /24\.1 pts/);
   assert.match(c, /Breece Hall RB NYJ TV \d+ UNRANKED Sun/);        // has a game, so not "bye?"                                    // Sleeper projection for Josh Allen
   // Locked players aren't moved: Germie Bernard (PIT, final) stays on the bench, Metcalf (PIT) stays in
-  assert.doesNotMatch(c, /START Germie Bernard/);
-  assert.doesNotMatch(c, /SIT DK Metcalf/);
+  assert.doesNotMatch(c, /Start Germie Bernard/);
+  assert.doesNotMatch(c, /bench DK Metcalf/);
   assert.match(await card(page, 1), /Half League/);
   assert.deepEqual(errors, []);
 });
@@ -260,4 +260,37 @@ test("reminders card: explains what's needed when this browser can't get notific
   assert.match(await text(page, "#rem_note"), /can't show notifications|Home Screen/);
   assert.ok(await page.$eval("#rem_ctl", (e) => e.hidden));
   assert.deepEqual(errors, []);
+});
+
+test("lineup: swaps paired in kickoff order with ranks, points and close calls", async () => {
+  const { state } = await import("./helpers/world.mjs");
+  state.injuries = { "6": "Out" }; // Omar Cooper (FLEX, NYJ, Sunday) is out
+  state.bench = ["31"];             // Tetairoa McMillan (WR, CAR, Sunday) is on my bench
+  try {
+    const { page, errors } = await openApp();
+    await build(page);
+    const c = await card(page, 0);
+    assert.match(c, /Make these swaps 🔁 Start Tetairoa McMillan · bench Omar Cooper FLEX · Sun \d+:\d+ [AP]M · (WR\d+ · #\d+|unranked) vs Out · 14\.2 vs 10\.5 pts/);
+    assert.doesNotMatch(c, /projections favor keeping Omar Cooper/, "an injured player isn't 'kept'");
+    assert.deepEqual(errors, []);
+  } finally { state.injuries = {}; state.bench = []; }
+});
+
+test("lineup: close-call notes and pairing rules", async () => {
+  const { page } = await openApp();
+  const r = await page.evaluate(() => {
+    const mk = (id, pos, rp, extra = {}) => ({ id, name: id, pos, rp, pr: pos + rp, ...extra });
+    const fits = (slot, pos) => (STRICT.has(slot) ? pos === slot : !!FLEX[slot]?.includes(pos));
+    const gm = () => null;
+    // Two changes: the RB coming in must take the RB's spot, not the TE's
+    const pairs = pairSwaps([mk("rbIn", "RB", 10), mk("teIn", "TE", 30)], [mk("teOut", "TE", 40), mk("rbOut", "RB", 12)],
+      { slots: ["RB", "TE"], starters: ["rbOut", "teOut"], line: [mk("rbIn", "RB", 10), mk("teIn", "TE", 30)], gm, fits });
+    const close = (a, b) => a.rp !== Infinity && b.rp !== Infinity && Math.abs(a.rp - b.rp) <= CLOSE_RANKS;
+    const html = swapsHtml(pairs, { rk: (c) => c.pr, ptsOf: (c) => ({ rbIn: 9, rbOut: 12, teIn: 8, teOut: 4 })[c.id], close });
+    return { pairs: pairs.map((p) => `${p.in.id}>${p.out.id}`), text: html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ") };
+  });
+  assert.deepEqual(r.pairs.sort(), ["rbIn>rbOut", "teIn>teOut"]);
+  assert.match(r.text, /Start rbIn · bench rbOut RB · RB10 vs RB12 · 9 vs 12 pts · close call · projections favor keeping rbOut/);
+  assert.match(r.text, /Start teIn · bench teOut TE · TE30 vs TE40 · 8 vs 4 pts/);
+  assert.doesNotMatch(r.text, /teOut[^S]*close call/);
 });

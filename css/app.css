@@ -92,3 +92,6 @@ select.full{width:100%;height:44px}
 .trs{display:flex;justify-content:space-between;gap:10px;padding:1px 0}.trs b{font-variant-numeric:tabular-nums}.trs.win b{color:var(--good)}
 .hcard details.more summary{cursor:pointer;color:var(--accent);font-size:14px;margin-top:6px}
 .idea .meta{color:var(--muted);font-size:13px;margin-top:6px}.idea .meta .up{color:var(--good);font-weight:600}.idea .meta .down{color:var(--warn);font-weight:600}.idea button{margin-top:8px;padding:9px;font-size:15px}
+.swh{font-size:13px;color:var(--muted);margin:2px 0 2px;font-weight:600}
+.sw{padding:5px 0;border-top:1px solid var(--line)}.swh+.sw{border-top:0}.sw .m{color:var(--muted);font-size:12px;margin-top:1px}
+.cc{color:var(--warn);font-size:12px;font-weight:600}
