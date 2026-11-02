@@ -128,6 +128,8 @@ async function loadSleeperFresh(user,force,st){
   // A rostered player missing from cached player data (new signing, position change) breaks the start/sit diff, so refresh once
   const needed=mineAll.flatMap((r,i)=>r?[...(r.players||[]),...realIds(curAll[i].starters)]:[]).filter(id=>!String(id).startsWith("espn:"));
   if(!force&&needed.some(id=>!players[id])){players={...await loadPlayers(true),...espnPlayers(leagues)}}
+  // Remember this user's Sleeper leagues for the Reminders card's per-league switches
+  try{store.set("rem_leagues",JSON.stringify(leagues.filter(l=>l.provider!=="espn").map(l=>({id:l.league_id,name:l.name}))));if(typeof remLeaguesUI==="function")remLeaguesUI()}catch(e){}
   return{state,week,leagues,players,rosters,matchups,mineAll,curAll,userId:u.user_id,espnErrors};
 }
 // ESPN leagues come from the Worker already in Sleeper's shape; merge them in so every tab handles them the same way

@@ -18,8 +18,8 @@ function faFmtLabel(source,f){
 async function valueLists(source,f){
   let rows,pub;
   if(source==="tvboone"){const tv=await ensureTV();rows=[];pub=tv.ts;
-    for(const [pos,c] of Object.entries(tv.data.charts||{}))for(const p of c.players){const k=pos==="QB"?f.qb:f.sc,v=p.values[k],pv=tv.prev?.[pos]?.[norm(p.name)]?.[k];if(typeof v==="number"&&v>0)rows.push({n:p.name,pos,t:null,v,d:typeof pv==="number"?v-pv:null})}}
-  else{const d=await ensureFC(f);pub=Date.parse(d.data.fetchedAt)||d.ts;rows=d.data.players.map(p=>({n:p.name,pos:p.pos,t:teamKey(p.team),v:p.value,d:typeof p.trend==="number"?p.trend:null}))}
+    for(const [pos,c] of Object.entries(tv.data.charts||{}))for(const p of c.players){const k=pos==="QB"?f.qb:f.sc,v=p.values[k];if(typeof v==="number"&&v>0)rows.push({n:p.name,pos,t:null,v,d:trendFor("boone",{n:p.name,p:pos},f,null)})}}
+  else{const d=await ensureFC(f);pub=Date.parse(d.data.fetchedAt)||d.ts;rows=d.data.players.map(p=>({n:p.name,pos:p.pos,t:teamKey(p.team),v:p.value,d:trendFor("fc",{n:p.name,p:p.pos},f,p.sid)}))}
   const mk=a=>a.sort((x,y)=>y.v-x.v).map((p,i)=>({...p,r:i+1}));
   const qb=mk(rows.filter(p=>p.pos==="QB")).map(p=>({...p,pos:""})),fl=mk(rows.filter(p=>p.pos!=="QB"));
   return LISTS.map(([k])=>k==="QB"?{ps:qb,pub}:k==="FLEX"?{ps:fl,pub}:{ps:[],pub:0});
@@ -86,7 +86,7 @@ function faCompute(i){
 function faRender(){
   if(!FA)return;
   const i=+$("fa_league").value,pos=$("fa_pos").value,all=faCompute(i);store.set("fa_league",FA.sl.leagues[i].league_id);store.set("fa_pos",pos);
-  const row=e=>{const meta=[e.v!=null?`Value ${e.v}${e.d?` (${e.d>0?"▲":"▼"}${Math.abs(e.d)})`:""}`:"",e.pts!=null?`Proj ${e.pts} pts`:"",e.o!=null?`Rostered ${e.o}%`:"",e.adds?`+${fmtAdds(e.adds)} adds`:""].filter(Boolean).join(" · ");
+  const row=e=>{const meta=[e.v!=null?`Value ${e.v}${trendText(e.d)}`:"",e.pts!=null?`Proj ${e.pts} pts`:"",e.o!=null?`Rostered ${e.o}%`:"",e.adds?`+${fmtAdds(e.adds)} adds`:""].filter(Boolean).join(" · ");
     return`<div class="fa"><span class="s">${esc(e.prl)}</span><span>${esc(e.n)} <span class="r">${esc(e.pos)}${e.t?" "+esc(e.t):""}</span>${meta?`<div class="m">${esc(meta)}</div>`:""}${e.note?`<div class="${e.note.up?"up":"bnch"}">${esc(e.note.txt)}</div>`:""}</span><span class="r">${e.flex?"#"+e.r:""}</span></div>`};
   const lg=FA.sl.leagues[i],sc=faKey(FA.source,lg),fl=faFmtLabel(FA.source,leagueFormat(lg)),vs=isValueSrc(FA.source);
   if(!FA.lists[sc]){$("fa_out").innerHTML=`<div class="card ok">No ${fl} ${vs?"values":"rankings"} available.</div>`;return}

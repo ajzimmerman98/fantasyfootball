@@ -135,3 +135,39 @@ test("trade values: charts missing from the author page are found through links 
     assert.deepEqual(d.errors, []);
   } finally { globalThis.fetch = real; }
 });
+
+test("FantasyCalc: this week's copy is saved and last week's comes back for trends", async () => {
+  const env = newEnv();
+  await db.ensureSchema(env.DB);
+  // Last week's copy (week 7, the world is in week 8) for this format, with every value 5 lower
+  const players = parseFC(JSON.parse(fixtures.fantasycalc)).map((p) => ({ ...p, value: p.value - 5 }));
+  await db.saveFcWeek(env.DB, 2026, 7, "1|1|12", players);
+  const r = await get("/trade-values/fantasycalc?ppr=1&qbs=1&teams=12", env);
+  assert.equal(r.body.prev.week, 7);
+  assert.equal(r.body.prev.players[0].value, r.body.players[0].value - 5);
+  assert.ok(env.DB._db.prepare("SELECT 1 FROM fc_history WHERE season = 2026 AND week = 8 AND fmt = '1|1|12'").get(), "this week's copy saved");
+});
+
+test("trimming keeps what the app uses and drops the rest", async () => {
+  const d1 = makeD1();
+  await db.ensureSchema(d1);
+  const ins = (sql, ...a) => d1._db.prepare(sql).run(...a);
+  for (const [season, week, pub] of [[2025, 10, 1], [2026, 5, 1], [2026, 5, 2], [2026, 7, 1], [2026, 7, 2], [2026, 8, 1], [2026, 8, 2]])
+    ins(`INSERT INTO rankings (season, week, list, pub, fetched_at, data) VALUES (?, ?, 'QB', ?, 'x', '[]')`, season, week, pub);
+  for (const [season, week] of [[2025, 3], [2026, 3], [2026, 7]]) ins(`INSERT INTO rankings_latest (source, kind, season, week, list, pub, fetched_at, data) VALUES ('ecr', 'week', ?, ?, 'QB', 1, 'x', '[]')`, season, week);
+  ins(`INSERT INTO rankings_latest (source, kind, season, week, list, pub, fetched_at, data) VALUES ('ecr', 'ros', 2026, 0, 'QB', 1, 'x', '[]')`);
+  for (const w of [3, 4, 5, 6, 7, 8]) ins(`INSERT INTO fc_history (season, week, fmt, fetched_at, data) VALUES (2026, ?, '1|1|12', 'x', '[]')`, w);
+  ins(`INSERT INTO trade_values (season, week, pos, fetched_at, data) VALUES (2025, 17, 'QB', 'x', '{}'), (2026, 7, 'QB', 'x', '{}')`);
+  ins(`INSERT INTO push_sent (endpoint, key, sent_at) VALUES ('e', 'old', '2026-09-01T00:00:00Z'), ('e', 'new', '2026-11-01T00:00:00Z')`);
+  ins(`INSERT INTO lineup_builds (created_at, season, week, league_id, scoring, source, result) VALUES ('x', 2025, 9, 'L0', 'PPR', 'boone', '{}'), ('x', 2026, 8, 'L1', 'PPR', 'boone', '{}')`);
+  const removed = await db.trim(d1, 2026, 8, Date.parse("2026-11-02T00:00:00Z"));
+  const rows = (sql) => d1._db.prepare(sql).all().map((r) => Object.values(r).join("/"));
+  // Boone: last season gone; week 5 keeps only its newest version; weeks 7 and 8 keep every version (Expired badges)
+  assert.deepEqual(rows("SELECT season, week, pub FROM rankings ORDER BY season, week, pub"), ["2026/5/2", "2026/7/1", "2026/7/2", "2026/8/1", "2026/8/2"]);
+  assert.deepEqual(rows("SELECT season, week, kind FROM rankings_latest ORDER BY week"), ["2026/0/ros", "2026/7/week"]);
+  assert.deepEqual(rows("SELECT week FROM fc_history ORDER BY week"), ["5", "6", "7", "8"]);
+  assert.deepEqual(rows("SELECT season FROM trade_values"), ["2026"]);
+  assert.deepEqual(rows("SELECT key FROM push_sent"), ["new"]);
+  assert.deepEqual(rows("SELECT season FROM lineup_builds"), ["2026"]);
+  assert.equal(removed.rankings, 2);
+});

@@ -63,6 +63,8 @@ function trSum(){
 }
 $("tr_go").onclick=()=>trRun();
 $("tr_vsrc").value=TV_SRC[store.get("tv_src")]?store.get("tv_src"):"boone";
+$("tr_trend").value=trendMode();
+$("tr_trend").onchange=()=>{store.set("tv_trend",$("tr_trend").value);if(TR)trRender()};
 $("tr_vsrc").onchange=async()=>{store.set("tv_src",$("tr_vsrc").value);saveProfile();if(!TR)return;const st=$("tr_status");st.textContent=`Loading ${tvName()} values…`;
   const errs=await ensureValues(TR.sl.leagues.filter((lg,i)=>TR.sl.mineAll[i]));st.textContent=tvStatus(errs);showWarn("tr_warn",valueWarns());$("tr_ideas").innerHTML="";await trLeague()};
 $("tr_league").onchange=()=>trLeague().catch(e=>$("tr_status").innerHTML=`<span class="err">${esc(e.message)}</span>`);

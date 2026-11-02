@@ -6,8 +6,9 @@ const API_BASE_DEFAULT="https://boone-api.ajzimmerman98.workers.dev"; // Cloudfl
 const apiBase=()=>store.get("api_url")||API_BASE_DEFAULT;
 let TV=null; // {data, idx:{QB:{normName:values}}}
 function indexTV(data){
-  const ix=charts=>{const idx={};for(const [pos,c] of Object.entries(charts||{})){idx[pos]={};for(const p of c.players||[]){const k=norm(p.name);if(k&&!(k in idx[pos]))idx[pos][k]=p.values}}return idx};
-  return{data,idx:ix(data.charts),prev:ix(data.prev)};
+  // what = "values" (per-format values) or "rank" (Justin Boone's rank at the position)
+  const ix=(charts,what)=>{const idx={};for(const [pos,c] of Object.entries(charts||{})){idx[pos]={};(c.players||[]).forEach((p,i)=>{const k=norm(p.name);if(k&&!(k in idx[pos]))idx[pos][k]=what==="rank"?p.rank||i+1:p.values})}return idx};
+  return{data,idx:ix(data.charts,"values"),prev:ix(data.prev,"values"),rk:ix(data.charts,"rank"),prk:ix(data.prev,"rank")};
 }
 async function ensureTV(force){
   if(!apiBase())throw new Error("Trade values need the Cloudflare Worker, which isn't connected yet.");
@@ -47,11 +48,15 @@ function tvBoone(p,fmt,prev){
 // ---- FantasyCalc (via the Worker), one value set per league format ----
 const FC={}; // format key -> {ts, data, sid:{sleeperId:value}, idx:{pos:{normName:value}}}
 const fcKey=f=>`${f.ppr}|${f.qb==="2QB"?2:1}|${f.teams}`;
+// FantasyCalc lookups by Sleeper id and by position + name: value, rank at the position (by value), 30-day trend,
+// and the same for last week's copy (data.prev, from the Worker's weekly history) when there is one
 function indexFC(data){
-  const sid={},idx={};
-  const tsid={},tidx={};
-  for(const p of data.players||[]){if(p.sid){sid[p.sid]=p.value;tsid[p.sid]=p.trend}const t=idx[p.pos]||(idx[p.pos]={}),tt=tidx[p.pos]||(tidx[p.pos]={}),k=norm(p.name);if(k&&!(k in t)){t[k]=p.value;tt[k]=p.trend}}
-  return{data,sid,idx,tsid,tidx};
+  const build=(players,field)=>{const sid={},idx={},rank={};
+    for(const pos of ["QB","RB","WR","TE"])(players||[]).filter(p=>p.pos===pos).sort((a,b)=>b.value-a.value).forEach((p,i)=>{rank[p.sid||pos+"|"+norm(p.name)]=i+1});
+    for(const p of players||[]){const v=field==="rank"?rank[p.sid||p.pos+"|"+norm(p.name)]:p[field];if(p.sid)sid[p.sid]=v;const t=idx[p.pos]||(idx[p.pos]={}),k=norm(p.name);if(k&&!(k in t))t[k]=v}
+    return{sid,idx}};
+  const cur=build(data.players,"value"),tr=build(data.players,"trend"),rk=build(data.players,"rank"),pv=data.prev?build(data.prev.players,"value"):null,prk=data.prev?build(data.prev.players,"rank"):null;
+  return{data,sid:cur.sid,idx:cur.idx,tsid:tr.sid,tidx:tr.idx,rk,pv,prk};
 }
 async function ensureFC(fmt){
   const k=fcKey(fmt);
@@ -84,14 +89,27 @@ function valueWarns(s=tvSrc()){
   if(s!=="boone")for(const x of Object.values(FC))if(x.data.stale)out.push(`FantasyCalc values couldn't be refreshed (${x.data.staleReason}), so you're seeing the last copy that loaded.`);
   return out;
 }
-// Change in value: Justin Boone = since his previous weekly chart; FantasyCalc = last 30 days; average = none
-function tradeTrend(p,fmt,id){
-  const s=tvSrc();
-  if(s==="boone"){const a=tvBoone(p,fmt),b=tvBoone(p,fmt,true);return a==null||b==null?null:a-b}
-  if(s==="fc"){const t=tvFC(p,fmt,id,true);return typeof t==="number"?t:null}
+// Trends, week over week: { d: change (value points, or places moved up at the position), label: e.g. "RB12" in rank mode }.
+// Justin Boone: since his previous weekly chart. FantasyCalc: since last week's copy (until there is one, its own
+// 30-day change, by value only). Average of both: none.
+const trendMode=()=>store.get("tv_trend")==="rank"?"rank":"value";
+function trendFor(src,p,fmt,id){
+  if(!p)return null;
+  const rank=trendMode()==="rank";
+  if(src==="boone"){if(!TV)return null;
+    if(rank){const a=matchIdx(TV.rk?.[p.p],p),b=matchIdx(TV.prk?.[p.p],p);return a==null?null:{d:b==null?0:b-a,label:p.p+a}}
+    const a=tvBoone(p,fmt),b=tvBoone(p,fmt,true);return a==null||b==null?null:{d:a-b}}
+  if(src==="fc"){const x=FC[fcKey(fmt)];if(!x)return null;
+    const get=m=>m?(id&&m.sid[id]!=null?m.sid[id]:matchIdx(m.idx[p.p],p)):null;
+    if(rank){const a=get(x.rk),b=get(x.prk);return a==null?null:{d:b==null?0:b-a,label:p.p+a}}
+    const a=get({sid:x.sid,idx:x.idx});if(a==null)return null;
+    if(x.pv){const b=get(x.pv);return b==null?null:{d:a-b}}
+    const t=get({sid:x.tsid,idx:x.tidx});return typeof t==="number"?{d:t}:null}
   return null;
 }
-const trendHtml=d=>d==null||!d?"":` <span class="${d>0?"tr-up":"tr-dn"}">${d>0?"▲":"▼"}${Math.abs(d)}</span>`;
+function tradeTrend(p,fmt,id){const s=tvSrc();return s==="avg"?null:trendFor(s,p,fmt,id)}
+const trendHtml=t=>!t?"":(t.label?` <span class="r">${esc(t.label)}</span>`:"")+(t.d?` <span class="${t.d>0?"tr-up":"tr-dn"}">${t.d>0?"▲":"▼"}${Math.abs(t.d)}</span>`:"");
+const trendText=t=>!t?"":(t.label?` · ${t.label}`:"")+(t.d?` (${t.d>0?"▲":"▼"}${Math.abs(t.d)})`:"");
 // Load whatever the chosen source needs for these leagues. Returns a list of problems (empty when all loaded).
 async function ensureValues(leagues,force){
   const s=tvSrc(),errs=[];

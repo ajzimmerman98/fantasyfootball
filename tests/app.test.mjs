@@ -87,6 +87,10 @@ test("trades: Justin Boone week-over-week and FantasyCalc 30-day trends; trade i
   assert.ok((await page.$$("#tr_mine .tr-up, #tr_mine .tr-dn, #tr_theirs .tr-up, #tr_theirs .tr-dn")).length > 0, "Boone trend arrows");
   await page.click("#tr_gen");
   assert.match(await text(page, "#tr_ideas"), /Your starting lineup is worth \d+/);
+  // Rank mode: each player shows his position rank in Justin Boone's chart
+  await page.selectOption("#tr_trend", "rank");
+  assert.match(await text(page, "#tr_mine"), /\b(QB|RB|WR|TE)\d+\b/);
+  await page.selectOption("#tr_trend", "value");
   await page.selectOption("#tr_vsrc", "fc");
   await page.waitForFunction(() => /FantasyCalc values/.test(document.getElementById("tr_status").textContent), null, { timeout: 30000 });
   assert.match(await text(page, "#tr_fmt"), /FantasyCalc values for this league/);

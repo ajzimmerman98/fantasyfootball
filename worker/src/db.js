@@ -10,6 +10,8 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS trade_values (season INTEGER NOT NULL, week INTEGER NOT NULL, pos TEXT NOT NULL, published TEXT, fetched_at TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY (season, week, pos))`,
   `CREATE TABLE IF NOT EXISTS lineup_builds (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, season INTEGER, week INTEGER, league_id TEXT, league_name TEXT, scoring TEXT, rankings_pub INTEGER, source TEXT, result TEXT NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS lineup_builds_created ON lineup_builds (created_at)`,
+  // FantasyCalc values as they stood each week, per league format, for week-over-week trends
+  `CREATE TABLE IF NOT EXISTS fc_history (season INTEGER NOT NULL, week INTEGER NOT NULL, fmt TEXT NOT NULL, fetched_at TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY (season, week, fmt))`,
   // Small settings (the Worker's push keys, last rankings notice)
   `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`,
   // Devices signed up for reminders (no account needed: the Sleeper username says whose lineups to check)
@@ -163,4 +165,39 @@ export async function unsent(db, endpoint, keys) {
 }
 export async function markSent(db, endpoint, keys) {
   if (keys.length) await db.batch(keys.map((k) => db.prepare(`INSERT OR IGNORE INTO push_sent (endpoint, key, sent_at) VALUES (?, ?, ?)`).bind(endpoint, k, now())));
+}
+
+// ---- FantasyCalc history: the first copy each week per format; players as [sleeperId, name, pos, value] ----
+export async function saveFcWeek(db, season, week, fmt, players) {
+  await db.prepare(`INSERT OR IGNORE INTO fc_history (season, week, fmt, fetched_at, data) VALUES (?, ?, ?, ?, ?)`)
+    .bind(season, week, fmt, now(), JSON.stringify(players.map((p) => [p.sid, p.name, p.pos, p.value]))).run();
+}
+export async function prevFcWeek(db, season, week, fmt) {
+  const r = await db.prepare(`SELECT week, data FROM fc_history WHERE fmt = ? AND season = ? AND week < ? ORDER BY week DESC LIMIT 1`).bind(fmt, season, week).first();
+  return r ? { week: r.week, players: JSON.parse(r.data).map(([sid, name, pos, value]) => ({ sid, name, pos, value })) } : null;
+}
+// Formats someone has looked at in the last two weeks (the scheduled job keeps their weekly copies going)
+export async function recentFcFormats(db, season, week) {
+  const { results } = await db.prepare(`SELECT DISTINCT fmt FROM fc_history WHERE season = ? AND week >= ?`).bind(season, week - 1).all();
+  return results.map((r) => r.fmt);
+}
+
+// ---- Trimming: once a day, drop what nothing uses any more ----
+// Keeps: this season's data; every version of Boone's rankings for this week and last (saved-lineup "Expired" badges),
+// the newest version for older weeks; this and last week's other lists; three weeks of FantasyCalc history; 30 days of
+// sent-reminder records. Returns rows removed per table.
+export async function trim(db, season, week, nowMs = Date.now()) {
+  const cutoff = new Date(nowMs - 30 * 86400e3).toISOString();
+  const steps = [
+    ["rankings", `DELETE FROM rankings WHERE season < ?`, [season]],
+    ["rankings", `DELETE FROM rankings WHERE season = ? AND week < ? AND pub < (SELECT MAX(r2.pub) FROM rankings r2 WHERE r2.season = rankings.season AND r2.week = rankings.week AND r2.list = rankings.list)`, [season, week - 1]],
+    ["rankings_latest", `DELETE FROM rankings_latest WHERE season < ? OR (kind = 'week' AND season = ? AND week < ?)`, [season, season, week - 1]],
+    ["trade_values", `DELETE FROM trade_values WHERE season < ?`, [season]],
+    ["fc_history", `DELETE FROM fc_history WHERE season < ? OR (season = ? AND week < ?)`, [season, season, week - 3]],
+    ["push_sent", `DELETE FROM push_sent WHERE sent_at < ?`, [cutoff]],
+    ["lineup_builds", `DELETE FROM lineup_builds WHERE season < ?`, [season]],
+  ];
+  const out = {};
+  for (const [t, sql, args] of steps) { const r = await db.prepare(sql).bind(...args).run(); out[t] = (out[t] || 0) + (r.meta?.changes || 0); }
+  return out;
 }
