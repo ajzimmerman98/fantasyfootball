@@ -51,6 +51,23 @@ test("lineup: every rankings source builds; saved lineups are kept per source", 
   assert.deepEqual(errors, []);
 });
 
+test("ESPN: a just-entered league id loads on the next build; a wrong SWID is called out", async () => {
+  const env = newEnv();
+  const { page, errors } = await openApp({ env, query: "?owner", connect: true });
+  await page.fill("#espn_ids", "1126044");
+  await page.dispatchEvent("#espn_ids", "change");
+  await build(page);                              // straight away, before the profile save lands
+  await page.waitForSelector("#out .card h2:has-text('Office League · ESPN')");
+  assert.ok(await page.$eval("#l_warn", (e) => e.hidden), "no ESPN warning");
+  env.ESPN_SWID = "SOMEONE-ELSE";
+  await build(page);
+  assert.match(await text(page, "#l_warn"), /ESPN league 1126044: none of the teams belongs to the ESPN_SWID account/);
+  delete env.ESPN_S2;
+  await build(page);
+  assert.match(await text(page, "#l_warn"), /doesn't have the ESPN_S2 and ESPN_SWID secrets/);
+  assert.deepEqual(errors, []);
+});
+
 test("feed health: a banner says when the saved copy is used", async () => {
   const env = newEnv();
   const first = await openApp({ env });
