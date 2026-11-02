@@ -15,7 +15,7 @@
 //   GET  /me/builds?limit                   Saved lineup builds, each with the newest rankings time for its week
 //   POST /me/builds                         Save builds: { builds: [...] }
 //   DELETE /me/builds/:id
-//   GET  /me/espn?season                    Your ESPN leagues (ids from profile settings.espnLeagues), in the app's league shape
+//   GET  /me/espn?season&ids                   Your ESPN leagues (ids from profile settings.espnLeagues), in the app's league shape
 //   GET  /push/key · POST /push/subscribe · POST /push/unsubscribe · POST /push/test   Reminder sign-ups (see reminders.js)
 // Scheduled every 3 hours: send reminders; save new versions of the weekly rankings from every source (Boone, FantasyPros consensus, Sleeper projections), and the week's trade value charts.
 //
@@ -213,7 +213,10 @@ async function handle(request, env) {
       return json({ saved: await store.addBuilds(db, b.builds) });
     }
     if (path === "/me/espn" && m === "GET") {
-      const ids = ((await store.getProfile(db)).settings.espnLeagues || []).map(String).filter((x) => /^\d{1,12}$/.test(x)).slice(0, 10);
+      // The app sends its league ids along, so a just-entered id works before the profile save lands; otherwise use the saved profile
+      const q = url.searchParams.get("ids");
+      const raw = q != null ? q.split(",") : (await store.getProfile(db)).settings.espnLeagues || [];
+      const ids = [...new Set(raw.map((x) => String(x).trim()))].filter((x) => /^\d{1,12}$/.test(x)).slice(0, 10);
       const season = +url.searchParams.get("season") || (await sleeperWeek()).season;
       const leagues = [], errors = [];
       await Promise.all(ids.map(async (id) => {

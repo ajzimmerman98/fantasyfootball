@@ -59,5 +59,5 @@ $("acode_off").onclick=()=>{store.set("acode","");$("acode").value="";syncUI()};
 $("saved").addEventListener("click",async e=>{const id=e.target.dataset.del;if(!id)return;e.target.disabled=true;try{await me("/builds/"+id,{method:"DELETE"});await loadSaved()}catch(err){e.target.textContent="Couldn't delete"}});
 $("user").addEventListener("change",saveProfile);
 $("espn_ids").value=store.get("espn_leagues")||"";
-$("espn_ids").addEventListener("change",()=>{store.set("espn_leagues",$("espn_ids").value);store.set("espn_leagues",espnIds().join(", "));$("espn_ids").value=store.get("espn_leagues");saveProfile()});
+$("espn_ids").addEventListener("change",()=>{store.set("espn_leagues",$("espn_ids").value);store.set("espn_leagues",espnIds().join(", "));$("espn_ids").value=store.get("espn_leagues");SLC=null;if(typeof loadedAt==="object")loadedAt={};saveProfile()});
 

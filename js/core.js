@@ -138,12 +138,16 @@ const espnPlayers=leagues=>Object.assign({},...leagues.filter(l=>l.provider==="e
 async function addEspn(season,myId,leagues,rosters,matchups,players,st){
   if(!synced()||!espnIds().length)return[];
   st.textContent="Loading ESPN leagues…";
-  let d;try{d=await me("/espn?season="+season)}catch(e){return[{leagueId:"ESPN",error:e.message}]}
+  let d;try{d=await me(`/espn?season=${season}&ids=${espnIds().join(",")}`)}catch(e){return[{leagueId:"ESPN",error:e.message}]}
+  if(!d.cookies)return[{leagueId:"ESPN",error:"the Worker doesn't have the ESPN_S2 and ESPN_SWID secrets yet."}];
   for(const L of d.leagues){
     const names={};
     const rs=L.teams.map(t=>{const owner=t.mine?myId:t.owner_id;names[owner]=t.team_name+(t.owner_name?` (${t.owner_name})`:"");return{roster_id:t.roster_id,owner_id:owner,players:t.players,starters:t.starters,reserve:t.reserve,_espn:true}});
     leagues.push({league_id:L.league_id,name:L.name+" · ESPN",provider:"espn",total_rosters:L.teams.length,roster_positions:L.roster_positions,scoring_settings:L.scoring_settings,_names:names,_players:L.players});
     rosters.push(rs);matchups.push(null);Object.assign(players,L.players);
   }
-  return d.errors||[];
+  const errs=d.errors||[];
+  // An ESPN league where the SWID matches no team would otherwise just say "Couldn't find your roster"
+  for(const L of d.leagues)if(!L.teams.some(t=>t.mine))errs.push({leagueId:L.league_id.slice(5),error:"none of the teams belongs to the ESPN_SWID account; check that secret."});
+  return errs;
 }
