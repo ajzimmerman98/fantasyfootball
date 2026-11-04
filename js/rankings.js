@@ -29,7 +29,7 @@ async function fetchFP(season,week,sec,scoring,source="boone",kind="week"){
   return{ps,pub};
 }
 async function sleeperWeek(){
-  const state=await api("/state/nfl",true),week=state.display_week||state.week;
+  const state=await api("/state/nfl",true),week=await nflWeek(state);
   store.set("cur_week",String(week));return{season:state.season,week};
 }
 // "FA" stands in for an unknown team so the position (and so the position rank) is still read

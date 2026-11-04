@@ -1,6 +1,6 @@
-// Reminders, checked on the Worker's 3-hour schedule and sent with Web Push (push.js):
-// - Weekly recap: Tuesday from 7 AM Eastern, each Sleeper league's result, record, playoff odds (and change) and top scorer.
-// - Waiver tips: Tuesday from 10 AM Eastern, free agents ranked above one of your starters (FantasyPros rest of season).
+// Reminders, checked by the Worker's hourly schedule and sent with Web Push (push.js):
+// - Weekly recap: Tuesday from 7 AM (the device's time), each Sleeper league's result, record, playoff odds (and change) and top scorer.
+// - Waiver tips: Tuesday from 10 AM (the device's time), free agents ranked above one of your starters (FantasyPros rest of season).
 // - New Justin Boone rankings: when a new version of his weekly rankings is saved (at most one notice every 12 hours).
 // - Lineup problems: a Sleeper starter who is out, doubtful, on IR, suspended or on bye, or an empty starting spot,
 //   about 4 hours before it matters (his game's kickoff; the week's first kickoff for byes and empty spots), with the
@@ -17,13 +17,23 @@ const SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/s
 // Nothing is sent from 11 PM to 7 AM on the device's clock; whatever is due waits for the first check after 7 AM.
 const localHour = (now, tz) => { try { return +new Intl.DateTimeFormat("en-US", { timeZone: tz || "America/New_York", hour: "numeric", hourCycle: "h23" }).format(new Date(now)); } catch { return localHour(now, "America/New_York"); } };
 export const quiet = (now, tz) => { const h = localHour(now, tz); return h >= 23 || h < 7; };
-export const LEAD_MS = 4 * 3600e3; // how long before kickoff problems are sent (the check runs every 3 hours)
+export const LEAD_MS = 4 * 3600e3; // how long before kickoff problems are sent (checked most hours)
 const BAD = { Out: "out", Doubtful: "doubtful", IR: "on IR", PUP: "on PUP", Sus: "suspended", Suspended: "suspended", NA: "not active" };
 const TEAM_FIX = { WSH: "WAS", JAC: "JAX", LA: "LAR" };
 const FLEX = { FLEX: ["RB", "WR", "TE"], WRRB_FLEX: ["WR", "RB"], REC_FLEX: ["WR", "TE"], SUPER_FLEX: ["QB", "RB", "WR", "TE"] };
 const fits = (slot, pos) => (FLEX[slot] ? FLEX[slot].includes(pos) : slot === pos);
 const scoringOf = (lg) => { const rec = +(lg.scoring_settings || {}).rec || 0; return rec >= 0.75 ? "PPR" : rec >= 0.25 ? "HALF" : "STD"; };
-const sj = async (p) => { const r = await fetch(SLEEPER + p); if (!r.ok) throw new Error(`Sleeper returned ${r.status}`); return r.json(); };
+// Sleeper reads are shared within one run (the lineup check, recap and waiver tips all need a league's rosters), since
+// every outside request counts toward the Worker's per-run limit.
+let memo = null;
+const sj = (p) => {
+  if (memo && memo.has(p)) return memo.get(p);
+  const pr = (async () => { const r = await fetch(SLEEPER + p); if (!r.ok) throw new Error(`Sleeper returned ${r.status}`); return r.json(); })();
+  if (memo) { memo.set(p, pr); pr.catch(() => memo && memo.delete(p)); }
+  return pr;
+};
+const UNLIMITED = { left: () => Infinity };
+const RESERVE = 3; // requests kept back for sending the notifications themselves
 
 // Kickoff and state (pre / in / post) by NFL team, for one week
 export async function weekSchedule(season, week) {
@@ -38,7 +48,7 @@ export async function weekSchedule(season, week) {
 }
 
 // This week's lineup problems for one Sleeper user: [{ key, league, text, at }] (at = when it matters)
-export async function lineupProblems(username, { season, week, players, games, muted = new Set() }) {
+export async function lineupProblems(username, { season, week, players, games, muted = new Set(), budget = UNLIMITED }) {
   const u = await sj(`/user/${encodeURIComponent(username)}`).catch(() => null);
   if (!u || !u.user_id) return [];
   const upcoming = Object.values(games).filter((g) => g.state === "pre").map((g) => g.kick);
@@ -46,6 +56,7 @@ export async function lineupProblems(username, { season, week, players, games, m
   const out = [];
   for (const lg of await sj(`/user/${u.user_id}/leagues/nfl/${season}`)) {
     if (muted.has(lg.league_id)) continue;
+    if (budget.left() < 2 + RESERVE) break; // the rest is checked next hour, still well before kickoff
     const [rosters, ms] = await Promise.all([sj(`/league/${lg.league_id}/rosters`), sj(`/league/${lg.league_id}/matchups/${week}`)]);
     const mine = (rosters || []).find((r) => r.owner_id === u.user_id), m = mine && (ms || []).find((x) => x.roster_id === mine.roster_id);
     if (!m) continue; // no game this week in this league
@@ -80,16 +91,19 @@ export async function lineupProblems(username, { season, week, players, games, m
 const norm = (x) => String(x || "").toLowerCase().replace(/[.'’]/g, "").replace(/[^a-z0-9 ]/g, " ").replace(/\b(jr|sr|ii|iii|iv|v)\b/g, "").replace(/\s+/g, " ").trim();
 const TEAM_KEY = { JAC: "JAX", WSH: "WAS", LA: "LAR" }, tk = (t) => (t ? TEAM_KEY[t] || t : t);
 const MIN_GAIN = 5; // a pickup must be ranked at least this many places above the starter it would replace
-// Tuesday from a given hour Eastern (recap from 7 AM, waiver tips from 10 AM, when most leagues' claims are made)
-export const waiverDay = (now) => tuesdayFrom(now, 10);
-export function tuesdayFrom(now, hour) {
-  const f = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric", hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(now));
+// Tuesday from a given hour on the device's clock (recap from 7 AM, waiver tips from 10 AM, when most leagues' claims are made)
+export const waiverDay = (now, tz) => tuesdayFrom(now, 10, tz);
+export function tuesdayFrom(now, hour, tz = "America/New_York") {
+  let f;
+  try { f = new Intl.DateTimeFormat("en-US", { timeZone: tz || "America/New_York", weekday: "short", hour: "numeric", hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(now)); }
+  catch { return tuesdayFrom(now, hour); }
   const g = (t) => f.find((x) => x.type === t)?.value;
   return g("weekday") === "Tue" && +g("hour") >= hour ? `${g("year")}-${g("month")}-${g("day")}` : null;
 }
 // Free agents ranked above one of your starters at their position, by FantasyPros rest-of-season rankings.
 // A free agent is only suggested when he can be matched to a Sleeper player id that no team has, so nobody already taken slips in.
-export async function waiverTips(username, { season, players, ros, muted = new Set() }) {
+// Returns null when the run's request budget ran out before every league was checked (tried again next hour).
+export async function waiverTips(username, { season, players, ros, muted = new Set(), budget = UNLIMITED }) {
   const u = await sj(`/user/${encodeURIComponent(username)}`).catch(() => null);
   if (!u || !u.user_id) return [];
   const byKey = {}, byName = {};
@@ -105,6 +119,7 @@ export async function waiverTips(username, { season, players, ros, muted = new S
     if (muted.has(lg.league_id)) continue;
     const lists = ros[scoringOf(lg) === "PPR" ? "PPR" : "HALF"];
     if (!lists) continue;
+    if (budget.left() < 1 + RESERVE) return null;
     const rosters = await sj(`/league/${lg.league_id}/rosters`), mine = (rosters || []).find((r) => r.owner_id === u.user_id);
     if (!mine) continue;
     const taken = new Set(rosters.flatMap((r) => r.players || []));
@@ -146,17 +161,47 @@ export async function finishedWeek(season, week) {
   return null;
 }
 const pctTxt = (x) => (x >= 0.995 ? ">99%" : x > 0 && x < 0.005 ? "<1%" : Math.round(x * 100) + "%");
-// One line per Sleeper league for week `w`; also saves each league's playoff odds so next week can show the change
-export async function weeklyRecap(db, username, { season, w, players, sims = 2000, muted = new Set() }) {
+// A league's matchup pairs for weeks from..to. Sleeper sets the whole regular season's schedule up front, so each week's
+// pairs are kept in D1 once read: the recap then needs no request per remaining week.
+async function leagueWeeks(db, id, season, from, to) {
+  const key = `sched|${season}|${id}`, have = JSON.parse((await store.getSetting(db, key)) || "{}");
+  const need = [];
+  for (let w = from; w <= to; w++) if (!have[w]) need.push(w);
+  if (need.length) {
+    const got = await Promise.all(need.map((w) => sj(`/league/${id}/matchups/${w}`).catch(() => [])));
+    let added = false;
+    got.forEach((wm, k) => {
+      const by = {};
+      for (const x of wm || []) if (x.matchup_id != null) (by[x.matchup_id] ||= []).push(x.roster_id);
+      const pairs = Object.values(by).filter((g) => g.length === 2);
+      if (pairs.length) { have[need[k]] = pairs; added = true; }
+    });
+    if (added) await store.setSetting(db, key, JSON.stringify(have));
+  }
+  return Array.from({ length: to - from + 1 }, (_, k) => have[from + k] || []);
+}
+async function missingWeeks(db, id, season, from, to) {
+  const have = JSON.parse((await store.getSetting(db, `sched|${season}|${id}`)) || "{}");
+  let n = 0;
+  for (let w = from; w <= to; w++) if (!have[w]) n++;
+  return n;
+}
+// One line per Sleeper league for week `w`; also saves each league's playoff odds so next week can show the change.
+// skip: league ids already done on an earlier run. Returns { lines, done (league ids), complete }: not complete when
+// the run's request budget ran out first, so the rest is picked up on the next run.
+export async function weeklyRecap(db, username, { season, w, players, sims = 2000, muted = new Set(), skip = new Set(), budget = UNLIMITED }) {
   const u = await sj(`/user/${encodeURIComponent(username)}`).catch(() => null);
-  if (!u || !u.user_id) return [];
-  const out = [];
+  if (!u || !u.user_id) return { lines: [], done: [], complete: true };
+  const out = [], done = [];
   for (const lg of await sj(`/user/${u.user_id}/leagues/nfl/${season}`)) {
-    if (muted.has(lg.league_id)) continue;
+    if (muted.has(lg.league_id) || skip.has(lg.league_id)) continue;
     const st = lg.settings || {}, last = (+st.playoff_week_start || 15) - 1;
+    const cost = 3 + (w < last ? await missingWeeks(db, lg.league_id, season, w + 1, last) : 0);
+    if (budget.left() < cost + RESERVE) return { lines: out, done, complete: false };
     const [rosters, users, ms] = await Promise.all([sj(`/league/${lg.league_id}/rosters`), sj(`/league/${lg.league_id}/users`).catch(() => []), sj(`/league/${lg.league_id}/matchups/${w}`)]);
     const mine = (rosters || []).find((r) => r.owner_id === u.user_id), m = mine && (ms || []).find((x) => x.roster_id === mine.roster_id);
     const opp = m && m.matchup_id != null && ms.find((x) => x.matchup_id === m.matchup_id && x.roster_id !== m.roster_id);
+    done.push(lg.league_id);
     if (!m || !opp) continue; // no game this week (bye, or out of the playoffs)
     const a = +m.points || 0, b = +opp.points || 0, res = a > b ? "W" : a < b ? "L" : "T";
     const oppRoster = rosters.find((r) => r.roster_id === opp.roster_id), oppUser = (users || []).find((x) => oppRoster && x.user_id === oppRoster.owner_id);
@@ -181,8 +226,7 @@ export async function weeklyRecap(db, username, { season, w, players, sims = 200
       const me = base.find((t) => t.owner === u.user_id);
       record = `${me.w}-${me.l}${me.t ? "-" + me.t : ""}`;
       if (w < last) {
-        const weeks = await Promise.all(Array.from({ length: last - w }, (_, k) => sj(`/league/${lg.league_id}/matchups/${w + 1 + k}`).catch(() => [])));
-        const pairs = weeks.map((wm) => { const by = {}; for (const x of wm || []) if (x.matchup_id != null) (by[x.matchup_id] ||= []).push(x.roster_id); return Object.values(by).filter((g) => g.length === 2); });
+        const pairs = await leagueWeeks(db, lg.league_id, season, w + 1, last);
         if (pairs.some((g) => g.length)) {
           const teams = strengths(base), k = teams.findIndex((t) => t.owner === u.user_id);
           odds = simulateSeason({ teams, weeks: pairs, nPO: +st.playoff_teams || 6, median: +st.league_average_match === 1, sims, me: k }).teams[k].po;
@@ -197,15 +241,22 @@ export async function weeklyRecap(db, username, { season, w, players, sims = 200
         (record ? ` · ${record}` : "") + (odds != null ? ` · playoff odds ${pctTxt(odds)}${delta ? ` (${delta > 0 ? "▲" : "▼"}${Math.abs(delta)})` : ""}` : "") +
         (top ? ` · top scorer ${players[top.pid]?.name || top.pid} ${top.v.toFixed(1)}` : "") });
   }
-  return out;
+  return { lines: out, done, complete: true };
 }
 
 const timeIn = (ms, tz) => { try { return new Date(ms).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit", timeZone: tz || "America/New_York" }); } catch { return new Date(ms).toISOString(); } };
 
 // The scheduled check. newBoone: a new version of Justin Boone's rankings for `week` was saved on this run.
-export async function runReminders(env, { season, week, newBoone, now = Date.now() }) {
+// budget.left(): outside requests this run may still make. only: "rankings" sends just the new-rankings notice (the
+// runs that refresh rankings use most of their budget on that).
+export async function runReminders(env, { season, week, newBoone, now = Date.now(), budget = UNLIMITED, only = null }) {
+  memo = new Map();
+  try { return await reminders(env, { season, week, newBoone, now, budget, only }); }
+  finally { memo = null; }
+}
+async function reminders(env, { season, week, newBoone, now, budget, only }) {
   const db = env.DB, subs = await store.listSubs(db);
-  const result = { subscribers: subs.length, sent: 0, gone: 0, errors: [] };
+  const result = { subscribers: subs.length, sent: 0, gone: 0, deferred: [], errors: [] };
   if (!subs.length) return result;
   const keys = await vapidKeys(db);
   const send = async (sub, msg) => {
@@ -213,6 +264,7 @@ export async function runReminders(env, { season, week, newBoone, now = Date.now
     if (r === "gone") { await store.removeSub(db, sub.endpoint); result.gone++; } else if (r === "ok") result.sent++; else result.errors.push("push failed");
     return r;
   };
+  const err = (what, e) => result.errors.push(`${what}: ${e.message}`);
 
   // New rankings: a notice lasts 12 hours, so a device in quiet hours gets it after 7 AM
   if (newBoone) {
@@ -225,63 +277,80 @@ export async function runReminders(env, { season, week, newBoone, now = Date.now
     if (s.prefs.rankings === false || quiet(now, s.tz) || !(await store.unsent(db, s.endpoint, [`rankings|${notice.at}`])).size) continue;
     if ((await send(s, { title: notice.title, body: "Tap to build your lineups.", url: "./#lineup", tag: `rankings-${notice.week}` })) === "ok") await store.markSent(db, s.endpoint, [`rankings|${notice.at}`]);
   }
+  if (only === "rankings") return result;
 
   // Lineup problems
   const want = subs.filter((s) => s.prefs.lineup !== false && s.sleeper_username && !quiet(now, s.tz));
   if (want.length) {
-    const [players, games] = await Promise.all([sleeperPlayers(season, week), weekSchedule(season, week)]);
-    for (const s of want) {
-      try {
-        const due = (await lineupProblems(s.sleeper_username, { season, week, players, games, muted: new Set(s.prefs.muted || []) })).filter((p) => p.at > now && p.at - now <= LEAD_MS);
-        const fresh = await store.unsent(db, s.endpoint, due.map((p) => p.key));
-        const list = due.filter((p) => fresh.has(p.key));
-        if (!list.length) continue;
-        const first = Math.min(...list.map((p) => p.at)), texts = [...new Set(list.map((p) => p.text))];
-        const r = await send(s, {
-          // The same problem in several leagues (one player started in each) reads as one problem
-          title: texts.length === 1 ? `Lineup check: ${texts[0]}` : `Lineup check: ${texts.length} problems`,
-          body: list.map((p) => `${p.league}: ${p.text}${p.fix ? ` → ${p.fix}` : ""}`).join("\n") + `\nKickoff ${timeIn(first, s.tz)}`,
-          url: "./#lineup", tag: `lineup-${week}`,
-        });
-        if (r === "ok") await store.markSent(db, s.endpoint, list.map((p) => p.key));
-      } catch (e) { result.errors.push(`${s.sleeper_username}: ${e.message}`); }
-    }
-  }
-  // Weekly recap: once on Tuesday (from 7 AM Eastern) for the week that just finished
-  const rday = tuesdayFrom(now, 7), recapFor = [];
-  if (rday) for (const s of subs) if (s.prefs.recap !== false && s.sleeper_username && !quiet(now, s.tz) && (await store.unsent(db, s.endpoint, [`recap|${rday}`])).size) recapFor.push(s);
-  if (recapFor.length) {
-    const w = await finishedWeek(season, week).catch(() => null);
-    if (w) {
-      const players = await sleeperPlayers(season, w + 1).catch(() => ({}));
-      for (const s of recapFor) {
+    try {
+      const [players, games] = await Promise.all([sleeperPlayers(season, week), weekSchedule(season, week)]);
+      for (const s of want) {
         try {
-          const lines = await weeklyRecap(db, s.sleeper_username, { season, w, players, muted: new Set(s.prefs.muted || []) });
-          if (lines.length) {
-            const n = (r) => lines.filter((x) => x.res === r).length, one = lines[0];
-            const title = lines.length === 1 ? `Week ${w}: you ${one.res === "W" ? "won" : one.res === "L" ? "lost" : "tied"} ${one.a.toFixed(1)}–${one.b.toFixed(1)}` : `Week ${w} recap: ${n("W")}-${n("L")}${n("T") ? "-" + n("T") : ""}`;
-            const r = await send(s, { title, body: lines.map((x) => x.text).join("\n"), url: "./#power", tag: `recap-${w}` });
-            if (r !== "ok") continue;
-          }
-          await store.markSent(db, s.endpoint, [`recap|${rday}`]);
-        } catch (e) { result.errors.push(`${s.sleeper_username} recap: ${e.message}`); }
+          const due = (await lineupProblems(s.sleeper_username, { season, week, players, games, muted: new Set(s.prefs.muted || []), budget })).filter((p) => p.at > now && p.at - now <= LEAD_MS);
+          const fresh = await store.unsent(db, s.endpoint, due.map((p) => p.key));
+          const list = due.filter((p) => fresh.has(p.key));
+          if (!list.length) continue;
+          const first = Math.min(...list.map((p) => p.at)), texts = [...new Set(list.map((p) => p.text))];
+          const r = await send(s, {
+            // The same problem in several leagues (one player started in each) reads as one problem
+            title: texts.length === 1 ? `Lineup check: ${texts[0]}` : `Lineup check: ${texts.length} problems`,
+            body: list.map((p) => `${p.league}: ${p.text}${p.fix ? ` → ${p.fix}` : ""}`).join("\n") + `\nKickoff ${timeIn(first, s.tz)}`,
+            url: "./#lineup", tag: `lineup-${week}`,
+          });
+          if (r === "ok") await store.markSent(db, s.endpoint, list.map((p) => p.key));
+        } catch (e) { err("lineup check", e); }
       }
-    }
+    } catch (e) { err("lineup check", e); }
   }
 
-  // Waiver tips: once on Tuesday (from 10 AM Eastern)
-  const day = waiverDay(now), tipsFor = subs.filter((s) => s.prefs.waivers !== false && s.sleeper_username && !quiet(now, s.tz));
-  if (day && tipsFor.length) {
-    const fresh = [];
-    for (const s of tipsFor) if ((await store.unsent(db, s.endpoint, [`waivers|${day}`])).size) fresh.push(s);
-    if (fresh.length) {
+  // Weekly recap: once on Tuesday (from 7 AM on the device's clock) for the week that just finished. Leagues are done
+  // as the run's request budget allows; what's done so far is kept in D1 and the whole recap is sent once complete.
+  const recapFor = [];
+  for (const s of subs) {
+    const day = tuesdayFrom(now, 7, s.tz);
+    if (day && s.prefs.recap !== false && s.sleeper_username && !quiet(now, s.tz) && (await store.unsent(db, s.endpoint, [`recap|${day}`])).size) recapFor.push([s, day]);
+  }
+  if (recapFor.length) {
+    try {
+      const w = await finishedWeek(season, week);
+      if (w) {
+        const players = await sleeperPlayers(season, w + 1).catch(() => ({}));
+        for (const [s, day] of recapFor) {
+          try {
+            const bufKey = `recapbuf|${day}|${s.endpoint}`, buf = JSON.parse((await store.getSetting(db, bufKey)) || "null") || { done: [], lines: [] };
+            const r = await weeklyRecap(db, s.sleeper_username, { season, w, players, muted: new Set(s.prefs.muted || []), skip: new Set(buf.done), budget });
+            const lines = [...buf.lines, ...r.lines];
+            if (!r.complete) { await store.setSetting(db, bufKey, JSON.stringify({ done: [...buf.done, ...r.done], lines })); result.deferred.push("recap"); continue; }
+            if (lines.length) {
+              const n = (x) => lines.filter((l) => l.res === x).length, one = lines[0];
+              const title = lines.length === 1 ? `Week ${w}: you ${one.res === "W" ? "won" : one.res === "L" ? "lost" : "tied"} ${one.a.toFixed(1)}–${one.b.toFixed(1)}` : `Week ${w} recap: ${n("W")}-${n("L")}${n("T") ? "-" + n("T") : ""}`;
+              if ((await send(s, { title, body: lines.map((x) => x.text).join("\n"), url: "./#power", tag: `recap-${w}` })) !== "ok") continue;
+            }
+            await store.markSent(db, s.endpoint, [`recap|${day}`]);
+            await store.setSetting(db, bufKey, "null");
+          } catch (e) { err("recap", e); }
+        }
+      }
+    } catch (e) { err("recap", e); }
+  }
+
+  // Waiver tips: once on Tuesday (from 10 AM on the device's clock)
+  const tipsFor = [];
+  for (const s of subs) {
+    const day = waiverDay(now, s.tz);
+    if (day && s.prefs.waivers !== false && s.sleeper_username && !quiet(now, s.tz) && (await store.unsent(db, s.endpoint, [`waivers|${day}`])).size) tipsFor.push([s, day]);
+  }
+  if (tipsFor.length && budget.left() < 4 + RESERVE) result.deferred.push("waivers");
+  else if (tipsFor.length) {
+    try {
       const [players, ...lists] = await Promise.all([sleeperPlayers(season, week), ...["QB", "FLEX:PPR", "FLEX:HALF"].map((k) => fetchList(season, week, k, "ecr", "ros").catch(() => null))]);
       const [qb, ppr, half] = lists, ros = {};
       if (qb && ppr) ros.PPR = { QB: qb.players, FLEX: ppr.players };
       if (qb && half) ros.HALF = { QB: qb.players, FLEX: half.players };
-      for (const s of fresh) {
+      for (const [s, day] of tipsFor) {
         try {
-          const tips = await waiverTips(s.sleeper_username, { season, players, ros, muted: new Set(s.prefs.muted || []) });
+          const tips = await waiverTips(s.sleeper_username, { season, players, ros, muted: new Set(s.prefs.muted || []), budget });
+          if (!tips) { result.deferred.push("waivers"); continue; }
           if (tips.length) {
             const r = await send(s, {
               title: tips.length === 1 ? `Waiver tip: add ${tips[0].name}` : `Waiver tips: ${tips.length} pickups`,
@@ -291,9 +360,9 @@ export async function runReminders(env, { season, week, newBoone, now = Date.now
             if (r !== "ok") continue;
           }
           await store.markSent(db, s.endpoint, [`waivers|${day}`]);
-        } catch (e) { result.errors.push(`${s.sleeper_username} waivers: ${e.message}`); }
+        } catch (e) { err("waivers", e); }
       }
-    }
+    } catch (e) { err("waivers", e); }
   }
   return result;
 }

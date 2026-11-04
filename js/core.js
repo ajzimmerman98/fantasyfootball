@@ -101,6 +101,17 @@ function currentStarters(roster,matchups,week){
   return{starters:roster.starters||[],src:roster._espn?"ESPN lineup":"roster (no matchup data for this week)"};
 }
 
+// Sleeper moves on to the next week a day or two after Monday night; once every game of its week is final (ESPN
+// scoreboard, weather.js), the app is already on next week.
+const WK_MEMO={};
+function nflWeek(state){
+  const w=+(state.display_week||state.week);
+  if(state.season_type!=="regular"||!(w>=1&&w<18))return Promise.resolve(w);
+  const k=state.season+"|"+w,m=WK_MEMO[k];
+  if(m&&Date.now()-m.ts<10*60e3)return m.p;
+  const p=loadSchedule(state,w).then(g=>g.length&&g.every(x=>x.state==="post")?w+1:w).catch(()=>w);
+  WK_MEMO[k]={ts:Date.now(),p};return p;
+}
 // Shared by every tab: user, leagues, my roster and current starters in each league, player data
 // reuse = an automatic tab load: share a Sleeper load from the last minute instead of fetching again.
 // Buttons always load fresh, so lineup changes just made in the Sleeper app show up.
@@ -115,7 +126,7 @@ async function loadSleeperFresh(user,force,st){
   st.textContent="Loading Sleeper data…";
   const [state,u]=await Promise.all([api("/state/nfl",true),api("/user/"+encodeURIComponent(user))]);
   if(!u||!u.user_id)throw new Error("Sleeper user not found.");
-  const week=state.display_week||state.week;
+  const week=await nflWeek(state);
   const leagues=await api(`/user/${u.user_id}/leagues/nfl/${state.season}`,true);
   let players=await loadPlayers(force);
   const [rosters,matchups]=await Promise.all([

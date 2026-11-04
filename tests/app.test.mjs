@@ -68,6 +68,20 @@ test("ESPN: a just-entered league id loads on the next build; a wrong SWID is ca
   assert.deepEqual(errors, []);
 });
 
+test("week: once every game of Sleeper's week is final, the app is on the next week", async () => {
+  state.finalWeeks = [8];
+  try {
+    const { page, errors } = await openApp();
+    await build(page, "ecr");
+    await page.waitForFunction(() => /Season 2026, week 9\./.test(document.getElementById("status").textContent), null, { timeout: 30000 });
+    await page.click("#tb_fa");
+    await page.selectOption("#fa_src", "ecr:week");
+    await page.click("#fa_go");
+    await page.waitForFunction(() => /FantasyPros week 9 rankings/.test(document.getElementById("fa_status").textContent), null, { timeout: 30000 });
+    assert.deepEqual(errors, []);
+  } finally { state.finalWeeks = []; }
+});
+
 test("feed health: a banner says when the saved copy is used", async () => {
   const env = newEnv();
   const first = await openApp({ env });

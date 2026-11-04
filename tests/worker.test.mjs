@@ -109,7 +109,7 @@ test("trade values: previous week's charts come back for trends", async () => {
 });
 
 test("scheduled job saves every source's weekly rankings without errors", async () => {
-  const out = await workerModule.scheduled({ DB: makeD1() }).catch((e) => ({ errors: [e.message] }));
+  const out = await workerModule.scheduled({ DB: makeD1() }, Date.parse("2026-11-03T12:17:00Z")).catch((e) => ({ errors: [e.message] })); // a refresh hour
   const ranked = Object.keys(out.rankings || {});
   for (const s of ["boone", "ecr", "sleeper"]) assert.ok(ranked.some((k) => k.startsWith(s + ":")), s);
   assert.ok(!out.errors.some((e) => /rankings|boone|ecr|sleeper/i.test(e) && !/trade/i.test(e)), out.errors.join("; "));
