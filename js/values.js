@@ -83,9 +83,11 @@ function tradeValue(p,fmt,id){
   return a==null?b:b==null?a:Math.round((a+b)/2);
 }
 // Feed health for trade values: the Worker served an older copy because the live source failed
-function valueWarns(s=tvSrc()){
+function valueWarns(s=tvSrc(),weekNote=true){
   const out=[];
-  if(s!=="fc"&&TV&&TV.data.stale)out.push(`Justin Boone's trade values couldn't be refreshed (${TV.data.staleReason}), so you're seeing the last copy that loaded.`);
+  const cw=+store.get("cur_week")||0;
+  if(weekNote&&s!=="fc"&&TV&&cw&&TV.data.week<cw)out.push(`Justin Boone's week ${cw} trade value charts aren't out yet, so these are his week ${TV.data.week} charts.`);
+  else if(s!=="fc"&&TV&&TV.data.stale)out.push(`Justin Boone's trade values couldn't be refreshed (${TV.data.staleReason}), so you're seeing the last copy that loaded.`);
   if(s!=="boone")for(const x of Object.values(FC))if(x.data.stale)out.push(`FantasyCalc values couldn't be refreshed (${x.data.staleReason}), so you're seeing the last copy that loaded.`);
   return out;
 }

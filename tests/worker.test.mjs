@@ -136,6 +136,26 @@ test("trade values: charts missing from the author page are found through links 
   } finally { globalThis.fetch = real; }
 });
 
+test("trade values: with no charts on the author page (new week, not posted yet), the newest saved charts are served", async () => {
+  const env = newEnv();
+  await db.ensureSchema(env.DB);
+  const tv = JSON.parse(fixtures.tradeValues), chart = (week) => Object.fromEntries(Object.entries(tv.charts).map(([pos, c]) => [pos, { ...c, season: 2026, week }]));
+  await db.saveTradeValues(env.DB, { charts: chart(7) });
+  await db.saveTradeValues(env.DB, { charts: chart(8) });
+  const real = globalThis.fetch;
+  globalThis.fetch = async (u) => (String(u) === "https://sports.yahoo.com/author/justin-boone/" ? new Response("<a href='/fantasy/article/week-9-fantasy-football-qb-rankings-1.html'>QB rankings</a>") : new Response("", { status: 404 }));
+  try {
+    const r = await get("/trade-values?refresh=1", env);
+    assert.equal(r.status, 200);
+    assert.equal(r.body.week, 8);
+    assert.equal(r.body.stale, true);
+    assert.match(r.body.staleReason, /No trade value chart articles/);
+    assert.deepEqual(Object.keys(r.body.charts).sort(), ["QB", "RB", "TE", "WR"]);
+    assert.ok(Object.values(r.body.charts).every((c) => c.saved && c.week === 8 && c.players.length));
+    assert.equal(r.body.prev.RB.week, 7);
+  } finally { globalThis.fetch = real; }
+});
+
 test("FantasyCalc: this week's copy is saved and last week's comes back for trends", async () => {
   const env = newEnv();
   await db.ensureSchema(env.DB);
