@@ -63,8 +63,20 @@ async function tradeValues(env, fresh) {
     return data;
   } catch (e) {
     if (tvMemo) return { ...tvMemo.data, stale: true, staleReason: e.message };
+    // Nothing on Yahoo right now (say, his charts have dropped off the author page): the newest charts saved in D1
+    const saved = env.DB ? await savedTradeValues(env.DB).catch(() => null) : null;
+    if (saved) return { ...saved, stale: true, staleReason: e.message };
     throw new HttpError(502, e.message);
   }
+}
+async function savedTradeValues(db) {
+  await store.ensureSchema(db);
+  const all = await store.latestTradeValues(db), season = Math.max(...Object.values(all).map((c) => c.season));
+  const charts = {};
+  for (const [p, c] of Object.entries(all)) if (c.season === season && c.players.length) charts[p] = { ...c, saved: true };
+  if (!Object.keys(charts).length) return null;
+  const week = Math.max(...Object.values(charts).map((c) => c.week));
+  return { source: "Justin Boone, Yahoo Sports", season, week, fetched: null, charts, errors: [], prev: await store.prevTradeValues(db, season, week) };
 }
 
 const fcMemo = new Map(); // format key -> { ts, data }

@@ -78,6 +78,9 @@ test("week: once every game of Sleeper's week is final, the app is on the next w
     await page.selectOption("#fa_src", "ecr:week");
     await page.click("#fa_go");
     await page.waitForFunction(() => /FantasyPros week 9 rankings/.test(document.getElementById("fa_status").textContent), null, { timeout: 30000 });
+    // Boone's trade value charts are still week 8's: said plainly on the Trades tab
+    await page.click("#tb_trade");
+    await page.waitForFunction(() => /week 9 trade value charts aren't out yet, so these are his week 8 charts/.test(document.getElementById("tr_warn").textContent), null, { timeout: 30000 });
     assert.deepEqual(errors, []);
   } finally { state.finalWeeks = []; }
 });

@@ -150,7 +150,7 @@ async function run(force,auto){
     if(!Object.keys(R).length){const e=rk.flat().find(r=>r.err);throw e?e.err:new Error(`${srcLabel(source)} week ${week} rankings aren't published yet.`)}
     ptsNeed.forEach((sc,j)=>{const res=pj[j];if(!res)return;const t={};LISTS.forEach(([k],n)=>{const r=res[n];if(r&&r.ps&&r.ps.length)t[k]={table:parseList(listText(r.ps),k),pts:Object.fromEntries(r.ps.map(p=>[p.r,p.pts]))}});if(Object.keys(t).length)P[sc]=t});
     st.textContent=`Season ${state.season}, week ${week}. ${idx.length} league(s). ${srcLabel(source)}${source==="sleeper"?"":" rankings"} updated ${fmtTime(Math.max(...Object.values(pubs)))}.`;
-    showWarn("l_warn",[...rk.map(r=>r.warn),...pj.map(r=>r&&r.warn),Object.keys(P).length?null:"Sleeper projections didn't load, so projected points and the matchup preview are missing.",...(apiBase()?valueWarns():[]),...espnErrors.map(e=>`ESPN league ${e.leagueId}: ${e.error}`)]);
+    showWarn("l_warn",[...rk.map(r=>r.warn),...pj.map(r=>r&&r.warn),Object.keys(P).length?null:"Sleeper projections didn't load, so projected points and the matchup preview are missing.",...(apiBase()?valueWarns(undefined,false):[]),...espnErrors.map(e=>`ESPN league ${e.leagueId}: ${e.error}`)]);
     // Doubtful players aren't started; the per-slot debug table shows only with ?debug in the address
     const opts={allowDoubt:false,debug:DEBUG,collect:[]};
     leagues.forEach((lg,i)=>{
