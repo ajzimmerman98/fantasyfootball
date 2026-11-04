@@ -1,6 +1,6 @@
 // Reminders card: notification sign-up with the Worker.
 // Loaded as a plain script by index.html, in order; files share one global scope.
-// ---------- Reminders (notifications, sent by the Worker on its 3-hour schedule) ----------
+// ---------- Reminders (notifications, sent by the Worker on its hourly schedule) ----------
 // No account needed: this device signs up with the Sleeper username, whose lineups the Worker checks.
 const pushOK=()=>"serviceWorker" in navigator&&"PushManager" in window&&"Notification" in window&&/^https?:$/.test(location.protocol);
 const isStandalone=()=>matchMedia("(display-mode: standalone)").matches||navigator.standalone===true;

@@ -10,6 +10,7 @@
 //   GET  /trade-values/fantasycalc?ppr&qbs&teams   FantasyCalc redraft values for a league format, rescaled so the top player is 100
 //   GET  /rankings/status?season&week       Newest publish time of Boone's rankings for that week
 //   GET  /health
+//   GET  /status                            The last scheduled runs: when, what ran, outside requests used, notifications sent, errors
 // Private (header "Authorization: Bearer <ACCESS_CODE>"):
 //   GET/PUT /me/profile                     Sleeper username and app settings
 //   GET  /me/builds?limit                   Saved lineup builds, each with the newest rankings time for its week
@@ -145,6 +146,11 @@ async function handle(request, env) {
   if (m === "OPTIONS") return new Response(null, { headers: CORS });
 
   if (path === "/health") return json({ ok: true, db: !!env.DB, accessCode: !!env.ACCESS_CODE });
+  if (path === "/status" && m === "GET") {
+    if (!env.DB) return json({ runs: [] });
+    await store.ensureSchema(env.DB);
+    return json({ runs: JSON.parse((await store.getSetting(env.DB, "runs")) || "[]") });
+  }
   if (path === "/trade-values" && m === "GET") return json(await tradeValues(env, url.searchParams.has("refresh")), 200, "public, max-age=300");
   if (path === "/trade-values/fantasycalc" && m === "GET") return json(await fantasyCalc(Object.fromEntries(url.searchParams), env), 200, "public, max-age=1800");
   if (path === "/rankings" && m === "GET") {
@@ -231,33 +237,55 @@ async function handle(request, env) {
   return json({ error: "Not found" }, 404);
 }
 
+// The schedule runs hourly. Cloudflare's free plan allows 50 outside requests per run, so the work is split: every
+// third hour refreshes rankings, trade values and FantasyCalc copies (and sends the new-rankings notice); the other
+// hours check reminders, each within what's left of the budget (anything that doesn't fit waits for the next hour).
+// Set SUBREQUESTS on a paid plan to allow more per run.
+const REFRESH_EVERY = 3;
 export async function scheduled(env, now = Date.now()) {
-  const out = { rankings: {}, tradeValues: null, reminders: null, errors: [] };
+  const out = { at: new Date(now).toISOString(), refresh: new Date(now).getUTCHours() % REFRESH_EVERY === 0, rankings: {}, tradeValues: null, reminders: null, errors: [] };
   if (!env.DB) return out;
   await store.ensureSchema(env.DB);
+  const limit = +env.SUBREQUESTS || 50, real = globalThis.fetch;
+  let used = 0;
+  globalThis.fetch = (...a) => { used++; return real(...a); };
+  const budget = { left: () => limit - 2 - used }; // 2 spare, so a miscount can't hit the hard limit
+  // Logged before the work starts, so a run Cloudflare stopped part way still shows up in /status
+  const log = async (entry) => {
+    try {
+      const runs = JSON.parse((await store.getSetting(env.DB, "runs")) || "[]").filter((r) => r.at !== entry.at);
+      await store.setSetting(env.DB, "runs", JSON.stringify([entry, ...runs].slice(0, 30)));
+    } catch {}
+  };
+  await log({ at: out.at, refresh: out.refresh, finished: false });
   let wk = null;
   try {
-    wk = await sleeperWeek();
-    for (const source of SOURCES) for (const key of ["QB", "FLEX:PPR", "FLEX:HALF", "K", "DEF"]) {
-      try { out.rankings[`${source}:${key}`] = await save(env.DB, wk.season, wk.week, await fetchList(wk.season, wk.week, key, source)); }
-      catch (e) { out.errors.push(`${source} ${key}: ${e.message}`); }
+    try { wk = await sleeperWeek(); } catch (e) { out.errors.push(`week: ${e.message}`); }
+    if (wk && out.refresh) {
+      for (const source of SOURCES) for (const key of ["QB", "FLEX:PPR", "FLEX:HALF", "K", "DEF"]) {
+        try { out.rankings[`${source}:${key}`] = await save(env.DB, wk.season, wk.week, await fetchList(wk.season, wk.week, key, source)); }
+        catch (e) { out.errors.push(`${source} ${key}: ${e.message}`); }
+      }
+      try { const d = await tradeValues(env, true); out.tradeValues = d.week; } catch (e) { out.errors.push(`trade values: ${e.message}`); }
+      // FantasyCalc formats in use: keep their weekly copies going for week-over-week trends
+      try {
+        for (const f of await store.recentFcFormats(env.DB, wk.season, wk.week)) { const [ppr, qbs, teams] = f.split("|"); await fantasyCalc({ ppr, qbs, teams }, env); }
+      } catch (e) { out.errors.push(`fantasycalc history: ${e.message}`); }
     }
-  } catch (e) { out.errors.push(`week: ${e.message}`); }
-  try { const d = await tradeValues(env, true); out.tradeValues = d.week; } catch (e) { out.errors.push(`trade values: ${e.message}`); }
-  // FantasyCalc formats in use: keep their weekly copies going for week-over-week trends
-  if (wk) try {
-    for (const f of await store.recentFcFormats(env.DB, wk.season, wk.week)) { const [ppr, qbs, teams] = f.split("|"); await fantasyCalc({ ppr, qbs, teams }, env); }
-  } catch (e) { out.errors.push(`fantasycalc history: ${e.message}`); }
-  // Once a day: trim data nothing uses any more
-  if (wk) try {
-    const day = new Date(now).toISOString().slice(0, 10);
-    if ((await store.getSetting(env.DB, "trim_day")) !== day) { out.trimmed = await store.trim(env.DB, wk.season, wk.week, now); await store.setSetting(env.DB, "trim_day", day); }
-  } catch (e) { out.errors.push(`trim: ${e.message}`); }
-  // Reminders: new Justin Boone rankings (a new version saved just now) and lineup problems before kickoff
-  if (wk) try {
-    const newBoone = Object.entries(out.rankings).some(([k, v]) => k.startsWith("boone:") && v === true);
-    out.reminders = await runReminders(env, { ...wk, newBoone, now });
-  } catch (e) { out.errors.push(`reminders: ${e.message}`); }
+    // Once a day: trim data nothing uses any more
+    if (wk) try {
+      const day = new Date(now).toISOString().slice(0, 10);
+      if ((await store.getSetting(env.DB, "trim_day")) !== day) { out.trimmed = await store.trim(env.DB, wk.season, wk.week, now); await store.setSetting(env.DB, "trim_day", day); }
+    } catch (e) { out.errors.push(`trim: ${e.message}`); }
+    if (wk) try {
+      const newBoone = Object.entries(out.rankings).some(([k, v]) => k.startsWith("boone:") && v === true);
+      out.reminders = await runReminders(env, { ...wk, newBoone, now, budget, only: out.refresh ? "rankings" : null });
+    } catch (e) { out.errors.push(`reminders: ${e.message}`); }
+  } finally { globalThis.fetch = real; }
+  out.requests = used;
+  const r = out.reminders || {};
+  await log({ at: out.at, refresh: out.refresh, finished: true, week: wk && wk.week, requests: used, subscribers: r.subscribers ?? null, sent: r.sent ?? 0,
+    deferred: r.deferred || [], errors: [...out.errors, ...(r.errors || [])].slice(0, 8) });
   return out;
 }
 

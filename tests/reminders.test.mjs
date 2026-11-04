@@ -186,3 +186,44 @@ test("muted leagues are left out of lineup alerts", async () => {
     assert.doesNotMatch(msg.body, /Half League/);
   } finally { state.injuries = {}; }
 });
+
+test("scheduled runs: refresh every third hour, reminders within the request budget, the recap finished on a later run", async () => {
+  const { workerModule } = await import("./helpers/app.mjs");
+  const env = newEnv(), phone = await device();
+  await db.ensureSchema(env.DB);
+  await db.saveSub(env.DB, { endpoint: phone.endpoint, ...phone.keys, sleeperUsername: "aj", prefs: { rankings: false, lineup: false, waivers: false }, tz: "America/Chicago" });
+  const read = async () => Promise.all(pushesTo(phone).map((p) => phone.decrypt(p.body)));
+  try {
+    state.finalWeeks = [8];
+    // 12:17 UTC (a refresh hour): rankings are saved for week 9, since every week 8 game is final; no recap on refresh runs
+    const r1 = await workerModule.scheduled(env, Date.parse("2026-11-03T12:17:00Z"));
+    assert.equal(r1.refresh, true);
+    assert.ok(Object.keys(r1.rankings).length > 0);
+    assert.ok(r1.requests <= 48, `refresh run used ${r1.requests} requests`);
+    assert.equal(pushesTo(phone).length, 0);
+    // 13:17 UTC is 7:17 AM in Chicago: the recap starts, but this run's budget only covers part of it
+    env.SUBREQUESTS = "12";
+    const r2 = await workerModule.scheduled(env, Date.parse("2026-11-03T13:17:00Z"));
+    assert.equal(r2.refresh, false);
+    assert.deepEqual(r2.reminders.deferred, ["recap"]);
+    assert.ok(r2.requests <= 12, `used ${r2.requests}`);
+    assert.equal(pushesTo(phone).length, 0);
+    // Next hour, with the usual budget: one recap for week 8, sent once
+    delete env.SUBREQUESTS;
+    const r3 = await workerModule.scheduled(env, Date.parse("2026-11-03T14:17:00Z"));
+    assert.ok(r3.requests <= 48, `used ${r3.requests}`);
+    const msgs = await read();
+    assert.equal(msgs.length, 1);
+    assert.match(msgs[0].title, /^Week 8/);
+    await workerModule.scheduled(env, Date.parse("2026-11-03T16:17:00Z"));
+    assert.equal(pushesTo(phone).length, 1);
+    // /status lists the runs, newest first
+    const st = await (await callWorker("https://w.test/status", env)).json();
+    assert.equal(st.runs.length, 4);
+    assert.equal(st.runs[0].at, "2026-11-03T16:17:00.000Z");
+    assert.ok(st.runs.every((r) => r.finished));
+    assert.deepEqual(st.runs[2].deferred, ["recap"]);
+    assert.equal(st.runs[1].sent, 1);
+    assert.equal(st.runs[3].week, 9);
+  } finally { state.finalWeeks = []; }
+});

@@ -132,7 +132,13 @@ async function poCompute(i){
   const projOk=Object.keys(T).length>0;
   const pts=p=>{const k=p&&secOf(p.p),l=k&&T[k];if(!l||OUT.has(p.i))return 0;const r=lookup(l.table,p);return r==null?0:l.pts[r]||0};
   const slots=(lg.roster_positions||[]).filter(x=>!NON.has(x));
-  const base=rosters.map(r=>{const st=r.settings||{},w=+st.wins||0,l=+st.losses||0,t=+st.ties||0,g=w+l+t,pf=(+st.fpts||0)+(+st.fpts_decimal||0)/100;
+  // Last week's results, when Sleeper hasn't added them to the standings yet (the app moves on to the next week first)
+  const gamesIn=r=>{const st=r.settings||{};return(+st.wins||0)+(+st.losses||0)+(+st.ties||0)};
+  const prevM=cur>1&&rosters.some(r=>gamesIn(r)<cur-1)?await api(`/league/${lg.league_id}/matchups/${cur-1}`).catch(()=>[]):[];
+  const base=rosters.map(r=>{const st=r.settings||{};let w=+st.wins||0,l=+st.losses||0,t=+st.ties||0,pf=(+st.fpts||0)+(+st.fpts_decimal||0)/100;
+    if(w+l+t<cur-1){const mm=(prevM||[]).find(x=>x.roster_id===r.roster_id),oo=mm&&mm.matchup_id!=null&&prevM.find(x=>x.matchup_id===mm.matchup_id&&x.roster_id!==r.roster_id);
+      if(mm&&oo){pf+=+mm.points||0;if(+mm.points>+oo.points)w++;else if(+mm.points<+oo.points)l++;else t++}}
+    const g=w+l+t;
     const ids=activeIds(r),val={},pos={};for(const id of ids){const p=sl.players[id];if(p){pos[id]=p.p;val[id]=pts(p)}}
     return{id:r.roster_id,owner:r.owner_id,w,l,t,pf,g,ppg:g?pf/g:null,proj:lineupStrength(ids,slots,val,pos)}});
   // Later weeks: points per game so far, pulled toward the league average (a lot early in the season, less later:

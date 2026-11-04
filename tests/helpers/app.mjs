@@ -40,7 +40,8 @@ export async function openApp({ env = newEnv(), width = 375, query = "", connect
     if (u.pathname.startsWith("/projections/nfl/")) return r.fulfill({ body: world.fixtures.projections, contentType: "application/json" });
     r.fulfill({ json: world.sleeper(u.pathname) });
   });
-  await page.route("https://site.api.espn.com/**", (r) => r.fulfill({ json: world.schedule }));
+  // The scoreboard honors state.finalWeeks, like the Worker's
+  await page.route("https://site.api.espn.com/**", async (r) => r.fulfill({ body: await (await world.workerFetch(r.request().url())).text(), contentType: "application/json" }));
   await page.route("https://api.open-meteo.com/**", (r) => r.fulfill({ json: world.forecast(r.request().url()) }));
   await page.route("https://geocoding-api.open-meteo.com/**", (r) => r.fulfill({ json: { results: [] } }));
   await page.route("https://partners.fantasypros.com/**", (r) => r.abort()); // the app goes through the Worker

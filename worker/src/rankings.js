@@ -53,10 +53,18 @@ export async function fetchList(season, week, key, source = "boone", kind = "wee
   return { key, source, kind, pub: players.length ? pub : 0, players };
 }
 
-// Current NFL season and week, as Sleeper shows them
+// Current NFL season and week. Sleeper moves on to the next week a day or two after Monday night, so once every game
+// of its week is final (ESPN scoreboard), it's already next week here.
 export async function sleeperWeek() {
   const r = await fetch("https://api.sleeper.app/v1/state/nfl");
   if (!r.ok) throw new Error(`Sleeper returned ${r.status}`);
-  const s = await r.json();
-  return { season: +s.season, week: +(s.display_week || s.week) };
+  const s = await r.json(), week = +(s.display_week || s.week);
+  return { season: +s.season, week: s.season_type === "regular" && week < 18 && (await weekFinal(+s.season, week)) ? week + 1 : week };
+}
+async function weekFinal(season, week) {
+  try {
+    const r = await fetch(`https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates=${season}&seasontype=2&week=${week}`);
+    const ev = r.ok ? (await r.json()).events || [] : [];
+    return ev.length > 0 && ev.every((e) => (e.status?.type || e.competitions?.[0]?.status?.type || {}).state === "post");
+  } catch { return false; }
 }
