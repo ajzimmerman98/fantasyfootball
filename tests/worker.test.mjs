@@ -136,6 +136,27 @@ test("trade values: charts missing from the author page are found through links 
   } finally { globalThis.fetch = real; }
 });
 
+test("trade values: when the charts have dropped off the author page, they're found through his trade tips article", async () => {
+  const { loadTradeValues } = await import("../worker/src/tradevalues.js");
+  const slug = (pos, id) => `/fantasy/article/2026-trade-value-charts--justin-boones-fantasy-football-${pos}-breakdown-for-week-9-${id}.html`;
+  const table = (cols) => `<table><tr><th>Rk</th><th>Player</th>${cols.map((c) => `<th>${c}</th>`).join("")}</tr><tr><td>1</td><td>Star Player</td>${cols.map(() => "<td>50</td>").join("")}</tr></table>`;
+  const tips = "/fantasy/article/fantasy-football-trade-tips-two-rookie-wrs-on-bye-among-players-to-target-in-deals-184019811.html";
+  const pos = ["quarterback", "running-back", "wide-receiver", "tight-end"];
+  const pages = {
+    "https://sports.yahoo.com/author/justin-boone/": `<a href="/fantasy/article/justin-boones-2026-qb-dynasty-fantasy-football-rankings-and-trade-value-chart-updates-november-1.html">dynasty</a><a href="${tips}">tips</a>`,
+    ["https://sports.yahoo.com" + tips]: pos.map((p, i) => `<a href="${slug(p, i + 1)}">x</a>`).join(""),
+    ...Object.fromEntries(pos.map((p, i) => ["https://sports.yahoo.com" + slug(p, i + 1), table(p === "quarterback" ? ["1QB", "2QB"] : ["HALF", "PPR"])])),
+  };
+  const real = globalThis.fetch, asked = [];
+  globalThis.fetch = async (u) => { asked.push(String(u)); return pages[String(u)] ? new Response(pages[String(u)]) : new Response("", { status: 404 }); };
+  try {
+    const d = await loadTradeValues();
+    assert.equal(d.week, 9);
+    assert.deepEqual(Object.keys(d.charts).sort(), ["QB", "RB", "TE", "WR"]);
+    assert.ok(!asked.some((u) => u.includes("dynasty")), "dynasty articles aren't opened");
+  } finally { globalThis.fetch = real; }
+});
+
 test("trade values: with no charts on the author page (new week, not posted yet), the newest saved charts are served", async () => {
   const env = newEnv();
   await db.ensureSchema(env.DB);
@@ -150,6 +171,7 @@ test("trade values: with no charts on the author page (new week, not posted yet)
     assert.equal(r.body.week, 8);
     assert.equal(r.body.stale, true);
     assert.match(r.body.staleReason, /No trade value chart articles/);
+    assert.equal(r.body.fromSaved, true);
     assert.deepEqual(Object.keys(r.body.charts).sort(), ["QB", "RB", "TE", "WR"]);
     assert.ok(Object.values(r.body.charts).every((c) => c.saved && c.week === 8 && c.players.length));
     assert.equal(r.body.prev.RB.week, 7);

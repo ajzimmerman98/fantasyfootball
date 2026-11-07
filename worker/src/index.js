@@ -65,7 +65,7 @@ async function tradeValues(env, fresh) {
     if (tvMemo) return { ...tvMemo.data, stale: true, staleReason: e.message };
     // Nothing on Yahoo right now (say, his charts have dropped off the author page): the newest charts saved in D1
     const saved = env.DB ? await savedTradeValues(env.DB).catch(() => null) : null;
-    if (saved) return { ...saved, stale: true, staleReason: e.message };
+    if (saved) return { ...saved, stale: true, fromSaved: true, staleReason: e.message };
     throw new HttpError(502, e.message);
   }
 }

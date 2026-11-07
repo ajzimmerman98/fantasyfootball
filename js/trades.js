@@ -23,7 +23,7 @@ async function trRun(auto){
 }
 function tvStatus(errs){
   const parts=[];
-  if(tvSrc()!=="fc"&&TV){const d=TV.data,stale=d.stale?` (couldn't refresh: ${d.staleReason})`:"",miss=Object.keys(d.charts).length<4?` Missing: ${["QB","RB","WR","TE"].filter(x=>!d.charts[x]).join(", ")}.`:"";const sv=Object.entries(d.charts).filter(([,c])=>c.saved).map(([p,c])=>`${p} (week ${c.week})`);parts.push(`Justin Boone's week ${d.week} trade values${stale}.${miss}${sv.length?` Saved copy used for ${sv.join(", ")}.`:""}`)}
+  if(tvSrc()!=="fc"&&TV){const d=TV.data,stale=d.stale?` (couldn't refresh: ${d.staleReason})`:"",miss=Object.keys(d.charts).length<4?` Missing: ${["QB","RB","WR","TE"].filter(x=>!d.charts[x]).join(", ")}.`:"";const sv=Object.entries(d.charts).filter(([,c])=>c.saved&&(!d.fromSaved||c.week<d.week)).map(([p,c])=>`${p} (week ${c.week})`);parts.push(d.fromSaved?`Justin Boone's week ${d.week} trade values (saved copy).${miss}${sv.length?` Older charts for ${sv.join(", ")}.`:""}`:`Justin Boone's week ${d.week} trade values${stale}.${miss}${sv.length?` Saved copy used for ${sv.join(", ")}.`:""}`)}
   if(tvSrc()!=="boone"&&Object.keys(FC).length){const t=Math.max(...Object.values(FC).map(x=>Date.parse(x.data.fetchedAt)||x.ts));parts.push(`FantasyCalc values (updated ${fmtTime(t)}).`)}
   return parts.join(" ")+(errs.length?" "+errs.join(" "):"");
 }
