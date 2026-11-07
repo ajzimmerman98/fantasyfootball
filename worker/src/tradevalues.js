@@ -58,9 +58,19 @@ const published = (html) => (html.match(/"datePublished":"([^"]+)"/) || [])[1] |
 
 // The author page only lists his most recent articles, so once he posts more, some charts drop off it. Each chart
 // article links to the other positions' charts, so links found inside loaded articles fill the gaps (up to 3 rounds).
+// The author page lists only his ~20 newest articles, and a busy week pushes the charts off it within a day or two. His
+// trade tips and weekly rankings articles link to the current charts, so when the page has none, look in those.
+const viaArticles = (html) => [...new Set([...html.matchAll(/\/fantasy\/article\/[a-z0-9-]+\.html/g)].map((m) => m[0]))]
+  .map((p) => ({ p, score: /trade-tips|trade-target|buy-low|sell-high/.test(p) ? 3 : /week-\d+-rankings|rankings-week-\d+/.test(p) ? 2 : /trade/.test(p) && !/dynasty/.test(p) ? 1 : 0 }))
+  .filter((x) => x.score > 0).sort((a, b) => b.score - a.score).slice(0, 3).map((x) => x.p);
 export async function loadTradeValues() {
-  let want = findArticles(await getText(AUTHOR_URL));
-  if (!want.length) throw new Error("No trade value chart articles found on Boone's Yahoo author page.");
+  const author = await getText(AUTHOR_URL);
+  let want = findArticles(author);
+  for (const p of want.length ? [] : viaArticles(author)) {
+    try { want = findArticles(await getText(ARTICLE_BASE + p)); } catch {}
+    if (want.length) break;
+  }
+  if (!want.length) throw new Error("No trade value chart articles found on Boone's Yahoo author page or in his latest articles.");
   const charts = {}, errors = {}, tried = new Set();
   const newer = (a, b) => !b || a.season * 100 + a.week > b.season * 100 + b.week;
   for (let round = 0; round < 3 && want.length; round++) {
