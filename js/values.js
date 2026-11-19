@@ -26,8 +26,10 @@ async function ensureTV(force){
 // FantasyCalc takes the exact format: ppr 0 / 0.5 / 1, 1 or 2 QBs, and the number of teams.
 function leagueFormat(lg){
   const rec=+(lg.scoring_settings||{}).rec||0,rp=lg.roster_positions||[];
-  return{sc:rec>=0.75?"PPR":"HALF",qb:rp.includes("SUPER_FLEX")||rp.filter(x=>x==="QB").length>1?"2QB":"1QB",ppr:rec>=0.75?1:rec>=0.25?0.5:0,teams:+lg.total_rosters||12};
+  return{sc:rec>=0.75?"PPR":"HALF",qb:rp.includes("SUPER_FLEX")||rp.filter(x=>x==="QB").length>1?"2QB":"1QB",ppr:rec>=0.75?1:rec>=0.25?0.5:0,teams:+lg.total_rosters||12,dyn:isDynasty(lg)};
 }
+// Sleeper's league type: 0 redraft, 1 keeper, 2 dynasty. Dynasty leagues use dynasty values (Dynasty Daddy or KeepTradeCut).
+const isDynasty=lg=>+(lg&&lg.settings||{}).type===2;
 const fmtLabel=f=>`${f.sc==="PPR"?"PPR":"Half-PPR"} · ${f.qb==="2QB"?"Superflex":"1QB"}`;
 const TV_SRC={boone:"Justin Boone's",fc:"FantasyCalc",avg:"Justin Boone + FantasyCalc average"};
 const tvSrc=()=>TV_SRC[$("tr_vsrc").value]?$("tr_vsrc").value:"boone";
@@ -74,8 +76,37 @@ function tvFC(p,fmt,id,trend){
   if(id&&d.sid[id]!=null)return trend?d.tsid?.[id]??null:d.sid[id]; // Sleeper players match exactly by id
   return matchIdx(trend?d.tidx?.[p.p]:d.idx[p.p],p);
 }
+// ---- Dynasty values (via the Worker, from Dynasty Daddy): one set per source, 1QB and superflex columns ----
+const DYN_SRC={dd:"Dynasty Daddy",ktc:"KeepTradeCut"};
+const dynSrc=()=>DYN_SRC[$("tr_dsrc").value]?$("tr_dsrc").value:"dd";
+const DYN={}; // source -> {ts, data, sid:{sleeperId:player}, idx:{pos:{normName:player}}, rk:{"1"|"sf":Map player->rank at position}, prk}
+function indexDyn(data){
+  const sid={},idx={},rk={},prk={};
+  for(const p of data.players||[]){if(p.sid)sid[p.sid]=p;const t=idx[p.pos]||(idx[p.pos]={}),k=norm(p.name);if(k&&!(k in t))t[k]=p}
+  // Rank at the position by value, now and a month ago (value minus its trend)
+  for(const c of ["1","sf"]){rk[c]=new Map();prk[c]=new Map();
+    for(const pos of ["QB","RB","WR","TE"]){const ps=(data.players||[]).filter(p=>p.pos===pos);
+      ps.slice().sort((a,b)=>b["v"+c]-a["v"+c]).forEach((p,i)=>rk[c].set(p,i+1));
+      ps.filter(p=>p["t"+c]!=null).sort((a,b)=>(b["v"+c]-b["t"+c])-(a["v"+c]-a["t"+c])).forEach((p,i)=>prk[c].set(p,i+1))}}
+  return{data,sid,idx,rk,prk};
+}
+async function ensureDyn(src=dynSrc()){
+  if(DYN[src]&&Date.now()-DYN[src].ts<6*3600e3)return DYN[src];
+  try{const c=JSON.parse(store.get("dyn_"+src)||"null");if(c&&Date.now()-c.ts<6*3600e3)return DYN[src]={...indexDyn(c.data),ts:c.ts}}catch(e){}
+  if(!apiBase())throw new Error("Dynasty values need the Cloudflare Worker.");
+  let r;try{r=await fetch(`${apiBase()}/trade-values/dynasty?market=${src}`,{cache:"no-store"})}catch(e){throw new Error("Couldn't reach the trade values service.")}
+  const data=await r.json().catch(()=>({}));
+  if(!r.ok||!data.players)throw new Error(data.error||`${DYN_SRC[src]} error ${r.status}`);
+  store.set("dyn_"+src,JSON.stringify({ts:Date.now(),data}));
+  return DYN[src]={...indexDyn(data),ts:Date.now()};
+}
+function dynPlayer(p,id){const d=DYN[dynSrc()];if(!d||!p)return null;return id&&d.sid[id]?d.sid[id]:matchIdx(d.idx[p.p],p)}
+function tvDyn(p,fmt,id){const x=dynPlayer(p,id);if(!x)return null;const v=fmt.qb==="2QB"?x.vsf:x.v1;return v>0?v:null}
+// Which values a league uses, for labels: dynasty leagues their dynasty source, others the chosen trade values
+const valName=fmt=>fmt&&fmt.dyn?DYN_SRC[dynSrc()]:tvName();
 // The chosen source's value for a player in a league format. id = Sleeper player id, when known.
 function tradeValue(p,fmt,id){
+  if(fmt&&fmt.dyn)return tvDyn(p,fmt,id);
   const s=tvSrc();
   if(s==="boone")return tvBoone(p,fmt);
   if(s==="fc")return tvFC(p,fmt,id);
@@ -85,6 +116,7 @@ function tradeValue(p,fmt,id){
 // Feed health for trade values: the Worker served an older copy because the live source failed
 function valueWarns(s=tvSrc(),weekNote=true){
   const out=[];
+  const dy=DYN[dynSrc()];if(dy&&dy.data.stale)out.push(`${DYN_SRC[dynSrc()]} values couldn't be refreshed (${dy.data.staleReason}), so dynasty leagues show the last copy that loaded.`);
   const cw=+store.get("cur_week")||0;
   if(weekNote&&s!=="fc"&&TV&&cw&&TV.data.week<cw)out.push(`Justin Boone's week ${cw} trade value charts aren't out yet, so these are his week ${TV.data.week} charts.`);
   else if(s!=="fc"&&TV&&TV.data.stale&&!TV.data.fromSaved)out.push(`Justin Boone's trade values couldn't be refreshed (${TV.data.staleReason}), so you're seeing the last copy that loaded.`);
@@ -98,6 +130,10 @@ const trendMode=()=>store.get("tv_trend")==="rank"?"rank":"value";
 function trendFor(src,p,fmt,id){
   if(!p)return null;
   const rank=trendMode()==="rank";
+  // Dynasty values: change since a month ago (Dynasty Daddy keeps that history)
+  if(src==="dyn"){const x=dynPlayer(p,id),d=DYN[dynSrc()];if(!x)return null;const c=fmt.qb==="2QB"?"sf":"1";
+    if(rank){const a=d.rk[c].get(x),b=d.prk[c].get(x);return a==null?null:{d:b==null?0:b-a,label:p.p+a}}
+    const t=x["t"+c];return typeof t==="number"?{d:t}:null}
   if(src==="boone"){if(!TV)return null;
     if(rank){const a=matchIdx(TV.rk?.[p.p],p),b=matchIdx(TV.prk?.[p.p],p);return a==null?null:{d:b==null?0:b-a,label:p.p+a}}
     const a=tvBoone(p,fmt),b=tvBoone(p,fmt,true);return a==null||b==null?null:{d:a-b}}
@@ -109,12 +145,15 @@ function trendFor(src,p,fmt,id){
     const t=get({sid:x.tsid,idx:x.tidx});return typeof t==="number"?{d:t}:null}
   return null;
 }
-function tradeTrend(p,fmt,id){const s=tvSrc();return s==="avg"?null:trendFor(s,p,fmt,id)}
+function tradeTrend(p,fmt,id){if(fmt&&fmt.dyn)return trendFor("dyn",p,fmt,id);const s=tvSrc();return s==="avg"?null:trendFor(s,p,fmt,id)}
 const trendHtml=t=>!t?"":(t.label?` <span class="r">${esc(t.label)}</span>`:"")+(t.d?` <span class="${t.d>0?"tr-up":"tr-dn"}">${t.d>0?"▲":"▼"}${Math.abs(t.d)}</span>`:"");
 const trendText=t=>!t?"":(t.label?` · ${t.label}`:"")+(t.d?` (${t.d>0?"▲":"▼"}${Math.abs(t.d)})`:"");
 // Load whatever the chosen source needs for these leagues. Returns a list of problems (empty when all loaded).
 async function ensureValues(leagues,force){
   const s=tvSrc(),errs=[];
+  if(leagues.some(isDynasty))await ensureDyn().catch(e=>errs.push(DYN_SRC[dynSrc()]+": "+e.message));
+  leagues=leagues.filter(lg=>!isDynasty(lg));
+  if(!leagues.length)return[...new Set(errs)];
   if(s!=="fc")await ensureTV(force).catch(e=>errs.push("Justin Boone: "+e.message));
   if(s!=="boone"){const fmts={};for(const lg of leagues)fmts[fcKey(leagueFormat(lg))]=leagueFormat(lg);
     await Promise.all(Object.values(fmts).map(f=>ensureFC(f).catch(e=>errs.push("FantasyCalc: "+e.message))))}

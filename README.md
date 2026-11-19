@@ -13,7 +13,7 @@ Live at https://ajzimmerman98.github.io/fantasyfootball/ (GitHub Pages; installa
 | `css/app.css` | Styles (light and dark) |
 | `js/core.js` | Shared basics: helpers, rankings-list parsing, player matching, loading Sleeper and ESPN data |
 | `js/lineup.js` | Lineup tab: best lineup, cards with points, matchup preview, kickoff, weather and locks |
-| `js/values.js`, `js/trades.js` | Trade values (Justin Boone, FantasyCalc) and the Trades tab with trade ideas |
+| `js/values.js`, `js/trades.js` | Trade values (Justin Boone, FantasyCalc; Dynasty Daddy or KeepTradeCut for dynasty leagues) and the Trades tab with trade ideas |
 | `js/rankings.js` | Loading rankings from each source, with feed-health warnings |
 | `js/freeagents.js`, `js/weather.js`, `js/power.js`, `js/history.js` | The other tabs (Power Rankings includes playoff odds) |
 | `js/sync.js`, `js/reminders.js` | Owner sync (saved lineups) and the Reminders card |

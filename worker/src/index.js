@@ -8,6 +8,7 @@
 //                                           source = boone (default) | ecr (FantasyPros consensus) | sleeper (Sleeper projections);
 //                                           kind = week (default) | ros (consensus only)
 //   GET  /trade-values/fantasycalc?ppr&qbs&teams   FantasyCalc redraft values for a league format, rescaled so the top player is 100
+//   GET  /trade-values/dynasty?market=dd|ktc       Dynasty values (Dynasty Daddy, or KeepTradeCut via Dynasty Daddy): 1QB and superflex, top = 100
 //   GET  /rankings/status?season&week       Newest publish time of Boone's rankings for that week
 //   GET  /health
 //   GET  /status                            The last scheduled runs: when, what ran, outside requests used, notifications sent, errors
@@ -29,6 +30,7 @@ import * as store from "./db.js";
 import { fetchLeague } from "./espn.js";
 import { vapidKeys, validSubscription, sendPush } from "./push.js";
 import { runReminders } from "./reminders.js";
+import { loadDynasty, MARKETS } from "./dynasty.js";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -103,6 +105,28 @@ async function fantasyCalc(q, env) {
   }
 }
 
+// Dynasty values, one copy per market. The last good copy is kept in D1 so a Dynasty Daddy outage shows it, marked stale.
+const dynMemo = new Map();
+async function dynastyValues(market, env) {
+  if (!MARKETS[market]) throw new HttpError(400, "market must be dd or ktc");
+  const m = dynMemo.get(market);
+  if (m && Date.now() - m.ts < TV_CACHE_MS) return m.data;
+  try {
+    const data = await loadDynasty(market);
+    dynMemo.set(market, { ts: Date.now(), data });
+    if (env.DB) await store.ensureSchema(env.DB).then(() => store.setSetting(env.DB, `dynasty|${market}`, JSON.stringify(data))).catch(() => {});
+    return data;
+  } catch (e) {
+    if (m) return { ...m.data, stale: true, staleReason: e.message };
+    const saved = env.DB ? await store.ensureSchema(env.DB).then(() => store.getSetting(env.DB, `dynasty|${market}`)).catch(() => null) : null;
+    if (saved) return { ...JSON.parse(saved), stale: true, staleReason: e.message };
+    throw new HttpError(502, e.message);
+  }
+}
+
+// For tests: the same as a request after the Worker restarted (nothing in memory)
+export const dynastyFromSaved = (market, env) => { dynMemo.delete(market); return dynastyValues(market, env); };
+
 async function weekParams(url) {
   const s = url.searchParams.get("season"), w = url.searchParams.get("week");
   if (s && w) return { season: +s, week: +w };
@@ -165,6 +189,7 @@ async function handle(request, env) {
   }
   if (path === "/trade-values" && m === "GET") return json(await tradeValues(env, url.searchParams.has("refresh")), 200, "public, max-age=300");
   if (path === "/trade-values/fantasycalc" && m === "GET") return json(await fantasyCalc(Object.fromEntries(url.searchParams), env), 200, "public, max-age=1800");
+  if (path === "/trade-values/dynasty" && m === "GET") return json(await dynastyValues(url.searchParams.get("market") || "dd", env), 200, "public, max-age=1800");
   if (path === "/rankings" && m === "GET") {
     const { season, week } = await weekParams(url), scoring = url.searchParams.get("scoring") === "HALF" ? "HALF" : "PPR";
     const source = url.searchParams.get("source") || "boone", kind = url.searchParams.get("kind") || "week";

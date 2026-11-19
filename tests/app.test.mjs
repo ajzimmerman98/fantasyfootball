@@ -3,6 +3,7 @@ import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import { openApp, newEnv, closeBrowser, text } from "./helpers/app.mjs";
 import { state } from "./helpers/world.mjs";
+import * as world from "./helpers/world.mjs";
 
 after(closeBrowser);
 const build = async (page, source = "boone") => {
@@ -118,6 +119,7 @@ test("trades: Justin Boone week-over-week and FantasyCalc 30-day trends; trade i
   await page.click("#tb_trade");
   await page.click("#tr_go");
   await page.waitForSelector("#tr_ui:not([hidden])", { timeout: 30000 });
+  await page.waitForSelector("#tr_mine .tp", { timeout: 30000 }); // the rows come after the league's team names load
   assert.ok((await page.$$("#tr_mine .tr-up, #tr_mine .tr-dn, #tr_theirs .tr-up, #tr_theirs .tr-dn")).length > 0, "Boone trend arrows");
   await page.click("#tr_gen");
   assert.match(await text(page, "#tr_ideas"), /Your starting lineup is worth \d+/);
@@ -129,6 +131,45 @@ test("trades: Justin Boone week-over-week and FantasyCalc 30-day trends; trade i
   await page.waitForFunction(() => /FantasyCalc values/.test(document.getElementById("tr_status").textContent), null, { timeout: 30000 });
   assert.match(await text(page, "#tr_fmt"), /FantasyCalc values for this league/);
   assert.deepEqual(errors, []);
+});
+
+test("dynasty leagues: Dynasty Daddy or KeepTradeCut values on every tab; redraft leagues keep theirs", async () => {
+  const { parseDynasty } = await import("../worker/src/dynasty.js");
+  const dd = parseDynasty(JSON.parse(world.fixtures.dynasty[14])), ktc = parseDynasty(JSON.parse(world.fixtures.dynasty[0]));
+  const v1 = (list, name) => list.find((p) => p.name === name).v1;
+  state.dynasty = ["L1"];
+  try {
+    const { page, errors } = await openApp();
+    await page.click("#tb_trade");
+    await page.click("#tr_go");
+    await page.waitForSelector("#tr_mine .tp", { timeout: 30000 });
+    assert.ok(!(await page.$eval("#tr_dyn", (e) => e.hidden)), "the dynasty values choice shows");
+    await page.selectOption("#tr_league", "0");
+    assert.match(await text(page, "#tr_fmt"), /Dynasty Daddy dynasty values for this league: 1QB/);
+    // Josh Allen by Sleeper id; Kenneth Walker (Kenneth Walker III, no id) by name
+    const ui = async () => text(page, "#tr_ui");
+    assert.match(await ui(), new RegExp(`Josh Allen QB BUF ${v1(dd, "Josh Allen")}\\b`));
+    await page.selectOption("#tr_team", { index: 0 });
+    assert.match(await ui(), new RegExp(`Kenneth Walker RB KC ${v1(dd, "Kenneth Walker III")}\\b`));
+    assert.match(await text(page, "#tr_status"), /Dynasty leagues: Dynasty Daddy values/);
+    await page.selectOption("#tr_dsrc", "ktc");
+    await page.waitForFunction(() => /KeepTradeCut dynasty values/.test(document.getElementById("tr_fmt").textContent), null, { timeout: 30000 });
+    assert.match(await ui(), new RegExp(`Josh Allen QB BUF ${v1(ktc, "Josh Allen")}\\b`));
+    // The redraft league still uses the chosen trade values
+    await page.selectOption("#tr_league", "1");
+    await page.waitForFunction(() => /Justin Boone's values for this league/.test(document.getElementById("tr_fmt").textContent), null, { timeout: 30000 });
+    // Free agents ranked by value: the dynasty league ranks by KeepTradeCut
+    await page.click("#tb_fa");
+    await page.selectOption("#fa_src", "tvfc:ros");
+    await page.click("#fa_go");
+    await page.waitForFunction(() => /KeepTradeCut dynasty values · 1QB values/.test(document.getElementById("fa_out").textContent), null, { timeout: 30000 });
+    assert.match(await text(page, "#fa_out"), /Value \d+/);
+    // Power rankings by trade values: the dynasty league uses KeepTradeCut too
+    await page.click("#tb_power");
+    await page.selectOption("#pw_src", "fc");
+    await page.waitForFunction(() => /Dynasty leagues: KeepTradeCut values/.test(document.getElementById("pw_status").textContent), null, { timeout: 30000 });
+    assert.deepEqual(errors, []);
+  } finally { state.dynasty = []; }
 });
 
 test("power rankings: every option ranks both teams", async () => {

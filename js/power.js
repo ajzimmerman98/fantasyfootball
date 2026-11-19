@@ -36,6 +36,8 @@ async function pwRun(auto){
       scs.forEach((sc,j)=>{const t={};LISTS.forEach(([k],n)=>{const r=res[j][n];if((k==="QB"||k==="FLEX")&&r.ps&&r.ps.length){t[k]=parseList(listText(r.ps),k);pub=Math.max(pub,r.pub)}});if(Object.keys(t).length)fp[sc]=t});
       if(!Object.keys(fp).length){const e=res.flat().find(r=>r.err);throw e?e.err:new Error("FantasyPros rest-of-season rankings aren't available.")}
       warns=res.map(r=>r.warn);note=`FantasyPros rest-of-season rankings (updated ${fmtTime(pub)}).`}
+    // Dynasty leagues rank by dynasty values when ranking by trade values
+    if((src==="boone"||src==="fc")&&idx.some(i=>isDynasty(sl.leagues[i]))){await ensureDyn();note+=` Dynasty leagues: ${DYN_SRC[dynSrc()]} values.`;warns=[...warns,...valueWarns("fc",false).filter(w=>/dynasty/.test(w))]}
     PW={user,ts:PW&&PW.sl===sl?PW.ts:Date.now(),sl,src,fp,users:PW&&PW.sl===sl?PW.users:{},odds:PW&&PW.sl===sl?PW.odds:{}};
     const last=store.get("pw_league");
     $("pw_league").innerHTML=idx.map(i=>`<option value="${i}">${esc(sl.leagues[i].name)}</option>`).join("");
@@ -50,6 +52,7 @@ function pwValuer(lg){
   const f=leagueFormat(lg);
   if(isWeekly(PW.src)){const t=PW.fp[f.sc]||{},sleeper=PW.src==="wk:sleeper";
     return p=>{const k=p&&secOf(p.p),l=k&&t[k];if(!l||OUT.has(p.i))return null;const r=lookup(l.table,p);if(r==null)return null;return sleeper?l.pts[r]??null:rankPts(k,r)}}
+  if((PW.src==="boone"||PW.src==="fc")&&f.dyn)return(p,id)=>tvDyn(p,f,id);
   if(PW.src==="boone")return(p)=>tvBoone(p,f);
   if(PW.src==="fc")return(p,id)=>tvFC(p,f,id);
   const t=PW.fp[f.sc]||{};
@@ -77,7 +80,7 @@ async function pwRender(){
   const names=Object.fromEntries(PW.users[lg.league_id].map(u=>[u.user_id,u.metadata?.team_name||u.display_name||"Team"]));
   const rows=pwScores(i),top=rows[0]?.total||1,f=leagueFormat(lg),wk=isWeekly(PW.src),est=wk&&PW.src!=="wk:sleeper";
   const nm=(id,val)=>{const p=sl.players[id];return`<div class="pl2"><span>${esc(p?.n||`${p?.f||""} ${p?.l||""}`)} <span class="r">${esc(p?.p||"")} ${esc(p?.t||"")}</span></span><b class="tv">${val[id]}</b></div>`};
-  $("pw_out").innerHTML=`<div class="ok" style="margin:10px 0 4px">${esc(PW_SRC[PW.src])} · ${wk?(f.sc==="PPR"?"PPR":"Half-PPR"):esc(fmtLabel(f))}${PW.src==="fc"?` · ${f.teams} teams`:""}${wk?` · ${est?"estimated ":"projected "}points for week ${sl.week}`:""}. Tap a team for its lineup.</div>`+
+  $("pw_out").innerHTML=`<div class="ok" style="margin:10px 0 4px">${(PW.src==="boone"||PW.src==="fc")&&f.dyn?`${esc(DYN_SRC[dynSrc()])} dynasty values · ${f.qb==="2QB"?"Superflex":"1QB"}`:`${esc(PW_SRC[PW.src])} · ${wk?(f.sc==="PPR"?"PPR":"Half-PPR"):esc(fmtLabel(f))}${PW.src==="fc"?` · ${f.teams} teams`:""}`}${wk?` · ${est?"estimated ":"projected "}points for week ${sl.week}`:""}. Tap a team for its lineup.</div>`+
     rows.map((x,k)=>{const mine=x.r.owner_id===sl.userId,who=names[x.r.owner_id]||`Team ${x.r.roster_id}`;
       const order=x.lineup.slice().sort((a,b)=>x.val[b]-x.val[a]);
       return`<details class="pw${mine?" me":""}"><summary><span class="rk">${k+1}</span><span class="nm">${esc(who)}${mine?' <span class="badge b-ok">You</span>':""}<div class="sub">${wk?`${x.lineup.length} starters · ${est?"est. ":""}points`:`Starters ${x.starters} · Depth ${x.depth}`}</div></span><span class="tot">${x.total}</span><span class="bar"><i style="width:${Math.max(2,Math.round(100*x.total/top))}%"></i></span></summary>`+

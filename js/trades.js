@@ -8,7 +8,8 @@ async function trRun(auto){
   try{
     const sl=await loadSleeper(user,false,st,auto);
     st.textContent=`Loading ${tvName()} values…`;
-    const verr=await ensureValues(sl.leagues.filter((lg,i)=>sl.mineAll[i]));
+    const mine=sl.leagues.filter((lg,i)=>sl.mineAll[i]);dynUI(mine);
+    const verr=await ensureValues(mine);
     if(tvSrc()!=="avg"&&verr.length)throw new Error(verr[0].replace(/^[^:]+: /,""));
     TR={sl,users:{},give:new Set(),get:new Set()};
     const opts=sl.leagues.map((lg,i)=>sl.mineAll[i]?`<option value="${i}">${esc(lg.name)}</option>`:"").join("");
@@ -25,6 +26,7 @@ function tvStatus(errs){
   const parts=[];
   if(tvSrc()!=="fc"&&TV){const d=TV.data,stale=d.stale?` (couldn't refresh: ${d.staleReason})`:"",miss=Object.keys(d.charts).length<4?` Missing: ${["QB","RB","WR","TE"].filter(x=>!d.charts[x]).join(", ")}.`:"";const sv=Object.entries(d.charts).filter(([,c])=>c.saved&&(!d.fromSaved||c.week<d.week)).map(([p,c])=>`${p} (week ${c.week})`);parts.push(d.fromSaved?`Justin Boone's week ${d.week} trade values (saved copy).${miss}${sv.length?` Older charts for ${sv.join(", ")}.`:""}`:`Justin Boone's week ${d.week} trade values${stale}.${miss}${sv.length?` Saved copy used for ${sv.join(", ")}.`:""}`)}
   if(tvSrc()!=="boone"&&Object.keys(FC).length){const t=Math.max(...Object.values(FC).map(x=>Date.parse(x.data.fetchedAt)||x.ts));parts.push(`FantasyCalc values (updated ${fmtTime(t)}).`)}
+  const dy=DYN[dynSrc()];if(dy&&!$("tr_dyn").hidden)parts.push(`Dynasty leagues: ${DYN_SRC[dynSrc()]} values (updated ${fmtTime(Date.parse(dy.data.fetchedAt)||dy.ts)}).`);
   return parts.join(" ")+(errs.length?" "+errs.join(" "):"");
 }
 async function trLeague(){
@@ -35,7 +37,7 @@ async function trLeague(){
   const others=sl.rosters[i].filter(r=>r.owner_id!==sl.userId);
   $("tr_team").innerHTML=others.map(r=>`<option value="${r.roster_id}">${esc(names[r.owner_id]||"Team "+r.roster_id)}</option>`).join("");
   const f=leagueFormat(lg);
-  $("tr_fmt").textContent=`${tvName()} values for this league: ${fmtLabel(f)}${tvSrc()!=="boone"?` · ${f.teams} teams`:""}`;
+  $("tr_fmt").textContent=f.dyn?`${DYN_SRC[dynSrc()]} dynasty values for this league: ${f.qb==="2QB"?"Superflex":"1QB"}`:`${tvName()} values for this league: ${fmtLabel(f)}${tvSrc()!=="boone"?` · ${f.teams} teams`:""}`;
   trRender();
 }
 function trRows(roster,set,side,fmt){
@@ -66,6 +68,11 @@ $("tr_vsrc").value=TV_SRC[store.get("tv_src")]?store.get("tv_src"):"boone";
 $("tr_trend").value=trendMode();
 $("tr_trend").onchange=()=>{store.set("tv_trend",$("tr_trend").value);if(TR)trRender()};
 $("tr_vsrc").onchange=async()=>{store.set("tv_src",$("tr_vsrc").value);saveProfile();if(!TR)return;const st=$("tr_status");st.textContent=`Loading ${tvName()} values…`;
+  const errs=await ensureValues(TR.sl.leagues.filter((lg,i)=>TR.sl.mineAll[i]));st.textContent=tvStatus(errs);showWarn("tr_warn",valueWarns());$("tr_ideas").innerHTML="";await trLeague()};
+// The dynasty values choice shows once a dynasty league is among yours (remembered, so other tabs know too)
+function dynUI(leagues){if(leagues)store.set("has_dyn",leagues.some(isDynasty)?"1":"");$("tr_dyn").hidden=!store.get("has_dyn")}
+$("tr_dsrc").value=DYN_SRC[store.get("dyn_src")]?store.get("dyn_src"):"dd";dynUI();
+$("tr_dsrc").onchange=async()=>{store.set("dyn_src",$("tr_dsrc").value);saveProfile();FA=PW=null;if(typeof loadedAt==="object")loadedAt={};if(!TR)return;const st=$("tr_status");st.textContent=`Loading ${DYN_SRC[dynSrc()]} values…`;
   const errs=await ensureValues(TR.sl.leagues.filter((lg,i)=>TR.sl.mineAll[i]));st.textContent=tvStatus(errs);showWarn("tr_warn",valueWarns());$("tr_ideas").innerHTML="";await trLeague()};
 $("tr_league").onchange=()=>trLeague().catch(e=>$("tr_status").innerHTML=`<span class="err">${esc(e.message)}</span>`);
 $("tr_team").onchange=()=>{TR.get.clear();trRender()};
@@ -127,7 +134,7 @@ function trGenerate(){
   const {picked,base}=generateTrades(i,scope);
   if(!picked.length){out.innerHTML=`<div class="idea"><span class="ok">No trades found that improve your starting lineup without weakening theirs${scope==="one"?" with this team. Try All teams":""}.</span></div>`;return}
   TR.ideas=picked;
-  out.innerHTML=`<div class="ok" style="margin-top:10px">Your starting lineup is worth ${base} by ${tvSrc()==="avg"?"the average":tvName()} values. Ideas that raise it without weakening the other team's starters, fair by those values:</div>`+
+  out.innerHTML=`<div class="ok" style="margin-top:10px">Your starting lineup is worth ${base} by ${tvSrc()==="avg"&&!fmt.dyn?"the average":valName(fmt)} values. Ideas that raise it without weakening the other team's starters, fair by those values:</div>`+
     picked.map((x,k)=>{const who=names[x.team.owner_id]||"Team "+x.team.roster_id,drop=x.give.length>x.get.length?" They'd need to free a roster spot.":x.get.length>x.give.length?" You'd need to free a roster spot.":"";
       return`<div class="idea"><h3>${scope==="all"?esc(who):"Trade idea "+(k+1)}<span>Lineup +${x.myGain}</span></h3>`+
         `<div class="side"><span class="lbl">You give</span>${x.give.map(nm).join(", ")}</div><div class="side"><span class="lbl">You get</span>${x.get.map(nm).join(", ")}</div>`+
