@@ -172,6 +172,35 @@ test("dynasty leagues: Dynasty Daddy or KeepTradeCut values on every tab; redraf
   } finally { state.dynasty = []; }
 });
 
+test("dynasty trade ideas: win now measures this season's lineup, still fair by dynasty value", async () => {
+  state.dynasty = ["L1"];
+  try {
+    const { page, errors } = await openApp();
+    await page.click("#tb_trade");
+    await page.click("#tr_go");
+    await page.waitForSelector("#tr_mine .tp", { timeout: 30000 });
+    await page.selectOption("#tr_league", "0");
+    await page.waitForFunction(() => !document.getElementById("tr_goal").hidden, null, { timeout: 30000 });
+    const ideas = async (goal) => {
+      await page.selectOption("#tr_goal", goal);
+      await page.click("#tr_gen");
+      await page.waitForFunction(() => /Trade idea|No trades/.test(document.getElementById("tr_ideas").textContent), null, { timeout: 30000 });
+      return text(page, "#tr_ideas");
+    };
+    assert.match(await ideas("overall"), /by Dynasty Daddy values/);
+    const now = await ideas("now");
+    assert.match(now, /^Win now: your starting lineup is worth \d+ this season by Justin Boone's values\. Ideas that raise it, fair by Dynasty Daddy dynasty values/);
+    assert.match(now, /Lineup \+\d+ this season/);
+    assert.match(now, /now \d+/);
+    // Fair by dynasty value: you never get more than a small margin over what you give
+    for (const [, g, r] of now.matchAll(/dynasty value (\d+) → (\d+)/g)) assert.ok(+r - +g <= Math.max(3, Math.round(0.08 * Math.max(+g, +r))), `${g} → ${r}`);
+    // A redraft league has no goal choice
+    await page.selectOption("#tr_league", "1");
+    await page.waitForFunction(() => document.getElementById("tr_goal").hidden, null, { timeout: 30000 });
+    assert.deepEqual(errors, []);
+  } finally { state.dynasty = []; }
+});
+
 test("power rankings: every option ranks both teams", async () => {
   const { page, errors } = await openApp();
   await page.click("#tb_power");
