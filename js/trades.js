@@ -37,7 +37,7 @@ async function trLeague(){
   const others=sl.rosters[i].filter(r=>r.owner_id!==sl.userId);
   $("tr_team").innerHTML=others.map(r=>`<option value="${r.roster_id}">${esc(names[r.owner_id]||"Team "+r.roster_id)}</option>`).join("");
   const f=leagueFormat(lg);
-  $("tr_goal").hidden=!f.dyn;
+  $("tr_goal").hidden=!f.dyn;$("tr_isdyn").checked=f.dyn;
   $("tr_fmt").textContent=f.dyn?`${DYN_SRC[dynSrc()]} dynasty values for this league: ${f.qb==="2QB"?"Superflex":"1QB"}`:`${tvName()} values for this league: ${fmtLabel(f)}${tvSrc()!=="boone"?` · ${f.teams} teams`:""}`;
   trRender();
 }
@@ -75,6 +75,11 @@ function dynUI(leagues){if(leagues)store.set("has_dyn",leagues.some(isDynasty)?"
 $("tr_dsrc").value=DYN_SRC[store.get("dyn_src")]?store.get("dyn_src"):"dd";dynUI();
 $("tr_dsrc").onchange=async()=>{store.set("dyn_src",$("tr_dsrc").value);saveProfile();FA=PW=null;if(typeof loadedAt==="object")loadedAt={};if(!TR)return;const st=$("tr_status");st.textContent=`Loading ${DYN_SRC[dynSrc()]} values…`;
   const errs=await ensureValues(TR.sl.leagues.filter((lg,i)=>TR.sl.mineAll[i]));st.textContent=tvStatus(errs);showWarn("tr_warn",valueWarns());$("tr_ideas").innerHTML="";await trLeague()};
+// Mark a league dynasty (or not) by hand: reload values for it and redraw everything that uses them
+$("tr_isdyn").onchange=async()=>{if(!TR)return;const lg=TR.sl.leagues[+$("tr_league").value],m=dynForced();m[lg.league_id]=$("tr_isdyn").checked;store.set("dyn_force",JSON.stringify(m));saveProfile();
+  FA=PW=null;if(typeof loadedAt==="object")loadedAt={};
+  const mine=TR.sl.leagues.filter((l,i)=>TR.sl.mineAll[i]);dynUI(mine);const st=$("tr_status");st.textContent="Loading values…";
+  const errs=await ensureValues(mine);st.textContent=tvStatus(errs);showWarn("tr_warn",valueWarns());$("tr_ideas").innerHTML="";await trLeague()};
 $("tr_league").onchange=()=>trLeague().catch(e=>$("tr_status").innerHTML=`<span class="err">${esc(e.message)}</span>`);
 $("tr_team").onchange=()=>{TR.get.clear();trRender()};
 

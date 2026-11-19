@@ -110,6 +110,8 @@ test("free agents: rostered players excluded; trending adds; trade value trends"
   assert.match(out, /Over your starter/);
   await page.selectOption("#fa_src", "tvboone:ros");
   await page.waitForFunction(() => /Ranked by Justin Boone's trade value/.test(document.getElementById("fa_status").textContent), null, { timeout: 30000 });
+  // The status line is set just before the list is drawn
+  await page.waitForFunction(() => /Value \d+/.test(document.getElementById("fa_out").textContent), null, { timeout: 30000 });
   assert.match(await text(page, "#fa_out"), /Value \d+ \(▲\d+\)/);
   assert.deepEqual(errors, []);
 });
@@ -197,6 +199,37 @@ test("dynasty trade ideas: win now measures this season's lineup, still fair by 
     // A redraft league has no goal choice
     await page.selectOption("#tr_league", "1");
     await page.waitForFunction(() => document.getElementById("tr_goal").hidden, null, { timeout: 30000 });
+    assert.deepEqual(errors, []);
+  } finally { state.dynasty = []; }
+});
+
+test("dynasty switch: a league can be marked dynasty (or not) by hand", async () => {
+  state.dynasty = ["L2"]; // Sleeper calls L2 dynasty; L1 isn't marked (say it was set up as a keeper league)
+  try {
+    const { page, errors } = await openApp();
+    await page.click("#tb_trade");
+    await page.click("#tr_go");
+    await page.waitForSelector("#tr_mine .tp", { timeout: 30000 });
+    await page.selectOption("#tr_league", "0");
+    await page.waitForFunction(() => /Justin Boone's values for this league/.test(document.getElementById("tr_fmt").textContent), null, { timeout: 30000 });
+    assert.equal(await page.isChecked("#tr_isdyn"), false);
+    assert.ok(await page.$eval("#tr_goal", (e) => e.hidden));
+    await page.check("#tr_isdyn");
+    await page.waitForFunction(() => /Dynasty Daddy dynasty values for this league/.test(document.getElementById("tr_fmt").textContent), null, { timeout: 30000 });
+    assert.ok(!(await page.$eval("#tr_goal", (e) => e.hidden)), "win now option shows");
+    assert.ok(!(await page.$eval("#tr_dyn", (e) => e.hidden)), "dynasty values choice shows");
+    // And Sleeper's own dynasty league can be switched back to redraft values
+    await page.selectOption("#tr_league", "1");
+    await page.waitForFunction(() => /Dynasty Daddy dynasty values for this league/.test(document.getElementById("tr_fmt").textContent) && document.getElementById("tr_isdyn").checked, null, { timeout: 30000 });
+    await page.uncheck("#tr_isdyn");
+    await page.waitForFunction(() => /Justin Boone's values for this league/.test(document.getElementById("tr_fmt").textContent), null, { timeout: 30000 });
+    // Remembered after a reload
+    await page.reload();
+    await page.click("#tb_trade");
+    await page.click("#tr_go");
+    await page.waitForSelector("#tr_mine .tp", { timeout: 30000 });
+    await page.selectOption("#tr_league", "0");
+    await page.waitForFunction(() => /Dynasty Daddy dynasty values for this league/.test(document.getElementById("tr_fmt").textContent), null, { timeout: 30000 });
     assert.deepEqual(errors, []);
   } finally { state.dynasty = []; }
 });

@@ -8,7 +8,7 @@ async function me(path,opt={}){
   if(!r.ok)throw new Error(d.error||`Sync error ${r.status}`);
   return d;
 }
-const settingsNow=()=>({rankSource:$("rsrc").value,faSource:$("fa_src").value,tvSource:$("tr_vsrc").value,dynSource:$("tr_dsrc").value,pwSource:$("pw_src").value,espnLeagues:espnIds()});
+const settingsNow=()=>({rankSource:$("rsrc").value,faSource:$("fa_src").value,tvSource:$("tr_vsrc").value,dynSource:$("tr_dsrc").value,dynForce:dynForced(),pwSource:$("pw_src").value,espnLeagues:espnIds()});
 let profTimer=null;
 function saveProfile(){if(!synced())return;clearTimeout(profTimer);profTimer=setTimeout(()=>me("/profile",{method:"PUT",body:JSON.stringify({sleeperUsername:$("user").value.trim(),settings:settingsNow()})}).catch(()=>{}),800)}
 // Sync is for the owner only: shown on browsers connected with the access code, or marked once by opening the app with ?owner
@@ -24,7 +24,7 @@ async function connectSync(code){
     if(p.sleeperUsername&&!$("user").value.trim()){$("user").value=p.sleeperUsername;store.set("user",p.sleeperUsername)}
     const st=p.settings||{};
     if(!p.updatedAt)saveProfile();
-    else{if(SRC_NAME[st.rankSource])($("rsrc").value=st.rankSource,store.set("rsrc",st.rankSource));if(PW_SRC[st.pwSource])($("pw_src").value=st.pwSource,store.set("pw_src",st.pwSource));if(TV_SRC[st.tvSource])($("tr_vsrc").value=st.tvSource,store.set("tv_src",st.tvSource));if(DYN_SRC[st.dynSource])($("tr_dsrc").value=st.dynSource,store.set("dyn_src",st.dynSource));if(st.faSource&&$("fa_src").querySelector(`option[value="${st.faSource}"]`))($("fa_src").value=st.faSource,store.set("fa_src",st.faSource));if(Array.isArray(st.espnLeagues)){store.set("espn_leagues",st.espnLeagues.join(", "));$("espn_ids").value=store.get("espn_leagues")}}
+    else{if(SRC_NAME[st.rankSource])($("rsrc").value=st.rankSource,store.set("rsrc",st.rankSource));if(PW_SRC[st.pwSource])($("pw_src").value=st.pwSource,store.set("pw_src",st.pwSource));if(TV_SRC[st.tvSource])($("tr_vsrc").value=st.tvSource,store.set("tv_src",st.tvSource));if(DYN_SRC[st.dynSource])($("tr_dsrc").value=st.dynSource,store.set("dyn_src",st.dynSource));if(st.dynForce&&typeof st.dynForce==="object")store.set("dyn_force",JSON.stringify(st.dynForce));if(st.faSource&&$("fa_src").querySelector(`option[value="${st.faSource}"]`))($("fa_src").value=st.faSource,store.set("fa_src",st.faSource));if(Array.isArray(st.espnLeagues)){store.set("espn_leagues",st.espnLeagues.join(", "));$("espn_ids").value=store.get("espn_leagues")}}
     msg.textContent="";syncUI();await loadSaved();
   }catch(e){store.set("acode","");syncUI();msg.innerHTML=`<span class="err">${esc(e.message)}</span>`}
 }
