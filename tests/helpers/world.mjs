@@ -13,6 +13,7 @@ export const fixtures = {
   tradeValues: read("trade-values.json"),
   fantasycalc: read("fantasycalc.json"),
   projections: read("sleeper-projections.json"),
+  dynasty: { 14: read("dynasty-daddy-14.json"), 0: read("dynasty-daddy-0.json") }, // Dynasty Daddy's own values, and KeepTradeCut's
   espnLeague,
 };
 
@@ -71,7 +72,8 @@ export function sleeper(pathname) {
   const p = pathname.replace(/^\/v1/, "");
   let m;
   if (p === "/state/nfl") return { season: SEASON, week: WEEK, display_week: WEEK, season_type: "regular" };
-  if (p.startsWith("/user/") && p.includes("/leagues/")) return leagues;
+  // state.dynasty: league ids that are dynasty leagues (Sleeper settings.type 2)
+  if (p.startsWith("/user/") && p.includes("/leagues/")) return leagues.map((l) => (state.dynasty.includes(l.league_id) ? { ...l, settings: { ...l.settings, type: 2 } } : l));
   if (p.startsWith("/user/")) return { user_id: "U1" };
   if (p === "/players/nfl") return Object.fromEntries(Object.entries(players).map(([id, x]) => [id, state.injuries[id] ? { ...x, injury_status: state.injuries[id] } : x]));
   if (p === "/players/nfl/trending/add") return [{ player_id: "30", count: 12345 }, { player_id: "31", count: 800 }];
@@ -119,7 +121,7 @@ export function fantasyPros(url) {
 // state.pushes records notifications sent to push services; state.injuries adds injury statuses to Sleeper's projections.
 // state.bench adds players to my L1 roster's bench (used by the reminder tests)
 // state.finalWeeks: weeks whose NFL games all count as final in the schedule (for the weekly recap)
-export const state = { fpDown: false, calls: [], pushes: [], injuries: {}, bench: [], finalWeeks: [] };
+export const state = { fpDown: false, calls: [], pushes: [], injuries: {}, bench: [], finalWeeks: [], dynasty: [], ddDown: false };
 export async function workerFetch(input, init = {}) {
   const url = String(input instanceof Request ? input.url : input);
   state.calls.push(url);
@@ -140,6 +142,10 @@ export async function workerFetch(input, init = {}) {
   }
   if (url.includes("api.sleeper.app/")) return new Response(JSON.stringify(sleeper(new URL(url).pathname)));
   if (url.startsWith("https://api.fantasycalc.com/")) return new Response(fixtures.fantasycalc);
+  if (url.startsWith("https://dynasty-daddy.com/api/v1/player/all/today")) {
+    if (state.ddDown) return new Response("down", { status: 503 });
+    return new Response(fixtures.dynasty[new URL(url).searchParams.get("market")] || "[]");
+  }
   if (url.includes("fantasy.espn.com")) return new Response(JSON.stringify(espnLeague));
   throw new Error("Unexpected outgoing request in test: " + url);
 }

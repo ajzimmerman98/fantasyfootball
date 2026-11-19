@@ -10,14 +10,18 @@ let FA=null;
 // Rest-of-season trade values as free agent rankings: QB list and a FLEX list mixing RB/WR/TE, both ordered by value.
 // Values depend on more of the league format than rankings do, so lists are keyed per format.
 const isValueSrc=src=>src==="tvboone"||src==="tvfc";
-function faKey(source,lg){const f=leagueFormat(lg);return source==="tvboone"?f.sc+"|"+f.qb:source==="tvfc"?fcKey(f):f.sc}
+// Dynasty leagues rank by their dynasty values whichever value source is picked
+function faKey(source,lg){const f=leagueFormat(lg);return isValueSrc(source)&&f.dyn?"dyn|"+f.qb:source==="tvboone"?f.sc+"|"+f.qb:source==="tvfc"?fcKey(f):f.sc}
 function faFmtLabel(source,f){
   if(!isValueSrc(source))return f.sc==="HALF"?"Half-PPR":"PPR";
+  if(f.dyn)return`${DYN_SRC[dynSrc()]} dynasty values · ${f.qb==="2QB"?"Superflex":"1QB"}`;
   return`${source==="tvfc"?(f.ppr===1?"PPR":f.ppr===0.5?"Half-PPR":"Standard"):f.sc==="PPR"?"PPR":"Half-PPR"} · ${f.qb==="2QB"?"Superflex":"1QB"}${source==="tvfc"?` · ${f.teams} teams`:""}`;
 }
 async function valueLists(source,f){
   let rows,pub;
-  if(source==="tvboone"){const tv=await ensureTV();rows=[];pub=tv.ts;
+  if(f.dyn){const d=await ensureDyn();pub=Date.parse(d.data.fetchedAt)||d.ts;
+    rows=d.data.players.map(p=>({n:p.name,pos:p.pos,t:teamKey(p.team),v:f.qb==="2QB"?p.vsf:p.v1,d:trendFor("dyn",{n:p.name,p:p.pos},f,p.sid)})).filter(p=>p.v>0)}
+  else if(source==="tvboone"){const tv=await ensureTV();rows=[];pub=tv.ts;
     for(const [pos,c] of Object.entries(tv.data.charts||{}))for(const p of c.players){const k=pos==="QB"?f.qb:f.sc,v=p.values[k];if(typeof v==="number"&&v>0)rows.push({n:p.name,pos,t:null,v,d:trendFor("boone",{n:p.name,p:pos},f,null)})}}
   else{const d=await ensureFC(f);pub=Date.parse(d.data.fetchedAt)||d.ts;rows=d.data.players.map(p=>({n:p.name,pos:p.pos,t:teamKey(p.team),v:p.value,d:trendFor("fc",{n:p.name,p:p.pos},f,p.sid)}))}
   const mk=a=>a.sort((x,y)=>y.v-x.v).map((p,i)=>({...p,r:i+1}));

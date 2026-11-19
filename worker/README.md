@@ -23,6 +23,8 @@ Reminders (no account; a device signs up with its push subscription and a Sleepe
 | `POST /push/unsubscribe` | `{ endpoint }` |
 | `POST /push/test` | `{ endpoint }`: sends a test notification to that device (at most every 30 seconds). |
 
+Dynasty leagues (Sleeper league type "dynasty") use dynasty values instead: `GET /trade-values/dynasty?market=dd` (Dynasty Daddy's own values) or `market=ktc` (KeepTradeCut's), both from Dynasty Daddy's public API (`src/dynasty.js`), with 1QB and superflex values rescaled so the top player is 100, and the change since a month ago for trend arrows. The last good copy of each is kept in D1 in case Dynasty Daddy is down.
+
 Private (send `Authorization: Bearer <ACCESS_CODE>`):
 
 | Endpoint | What it does |

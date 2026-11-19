@@ -66,10 +66,11 @@
 <div class="loadrow" style="margin-top:4px"><select id="fa_league" class="full" style="flex:1;min-width:0" aria-label="League"></select><select id="fa_pos" style="height:44px" aria-label="Position"><option value="ALL">All</option><option>QB</option><option>RB</option><option>WR</option><option>TE</option><option>K</option><option>DEF</option></select></div>
 <div id="fa_out"></div>
 </div>
-<small>Free agents are players on no roster in that league (waiver players included). FantasyPros is the consensus of all its experts; Sleeper projections rank by projected points. Justin Boone and FantasyCalc rest of season rank by trade value in each league's format (QB, RB, WR and TE only; FLEX ranks mix RB, WR and TE by value). Rostered % is the share of Yahoo, ESPN and other leagues he's on, from FantasyPros; adds are Sleeper adds in the last 24 hours. Each league uses its own scoring (standard-scoring leagues use half-PPR lists).</small>
+<small>Free agents are players on no roster in that league (waiver players included). FantasyPros is the consensus of all its experts; Sleeper projections rank by projected points. Justin Boone and FantasyCalc rest of season rank by trade value in each league's format (QB, RB, WR and TE only; FLEX ranks mix RB, WR and TE by value); dynasty leagues rank by the dynasty values chosen on the Trades tab. Rostered % is the share of Yahoo, ESPN and other leagues he's on, from FantasyPros; adds are Sleeper adds in the last 24 hours. Each league uses its own scoring (standard-scoring leagues use half-PPR lists).</small>
 </section>
 <section class="panel" id="p_trade" role="tabpanel" aria-labelledby="tb_trade" hidden>
 <label for="tr_vsrc">Trade values</label><select id="tr_vsrc" class="full"><option value="boone">Justin Boone's chart</option><option value="fc">FantasyCalc (based on real trades)</option><option value="avg">Average of Justin Boone and FantasyCalc</option></select>
+<div id="tr_dyn" hidden><label for="tr_dsrc">Dynasty leagues use</label><select id="tr_dsrc" class="full"><option value="dd">Dynasty Daddy values</option><option value="ktc">KeepTradeCut values</option></select></div>
 <label for="tr_trend">Trend arrows</label><select id="tr_trend" class="full"><option value="value">Change in value since last week</option><option value="rank">Change in rank at the position since last week</option></select>
 <div class="loadrow"><button id="tr_go">Load leagues &amp; trade values</button></div>
 <div id="tr_status" class="status"></div>

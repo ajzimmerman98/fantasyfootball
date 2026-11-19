@@ -213,3 +213,32 @@ test("trimming keeps what the app uses and drops the rest", async () => {
   assert.deepEqual(rows("SELECT season FROM lineup_builds"), ["2026"]);
   assert.equal(removed.rankings, 2);
 });
+
+test("dynasty values: Dynasty Daddy and KeepTradeCut, rescaled to 100 per column, with month-over-month trends; saved copy when down", async () => {
+  const { parseDynasty } = await import("../worker/src/dynasty.js");
+  const dd = parseDynasty(JSON.parse(fixtures.dynasty[14]));
+  assert.ok(dd.every((p) => ["QB", "RB", "WR", "TE"].includes(p.pos)), "draft picks are left out");
+  assert.equal(Math.max(...dd.map((p) => p.v1)), 100);
+  assert.equal(Math.max(...dd.map((p) => p.vsf)), 100);
+  const allen = dd.find((p) => p.name === "Josh Allen");
+  assert.equal(allen.sid, "7");
+  assert.ok(allen.vsf > allen.v1, "a quarterback is worth more in superflex");
+  assert.equal(typeof allen.t1, "number");
+  const env = newEnv();
+  const a = await get("/trade-values/dynasty?market=dd", env), b = await get("/trade-values/dynasty?market=ktc", env);
+  assert.equal(a.status, 200);
+  assert.equal(a.body.source, "Dynasty Daddy");
+  assert.equal(b.body.source, "KeepTradeCut");
+  const v = (d) => d.players.find((p) => p.name === "Josh Allen").v1;
+  assert.notEqual(v(a.body), v(b.body), "the two sources differ");
+  assert.equal((await get("/trade-values/dynasty?market=nope", env)).status, 400);
+  // Down: a fresh Worker (no in-memory copy) serves the copy saved in D1, marked stale
+  state.ddDown = true;
+  try {
+    const { dynastyFromSaved } = workerModule;
+    const r = await dynastyFromSaved("dd", env);
+    assert.equal(r.stale, true);
+    assert.match(r.staleReason, /503/);
+    assert.equal(v(r), v(a.body));
+  } finally { state.ddDown = false; }
+});
