@@ -37,6 +37,7 @@ async function trLeague(){
   const others=sl.rosters[i].filter(r=>r.owner_id!==sl.userId);
   $("tr_team").innerHTML=others.map(r=>`<option value="${r.roster_id}">${esc(names[r.owner_id]||"Team "+r.roster_id)}</option>`).join("");
   const f=leagueFormat(lg);
+  $("tr_goal").hidden=!f.dyn;
   $("tr_fmt").textContent=f.dyn?`${DYN_SRC[dynSrc()]} dynasty values for this league: ${f.qb==="2QB"?"Superflex":"1QB"}`:`${tvName()} values for this league: ${fmtLabel(f)}${tvSrc()!=="boone"?` · ${f.teams} teams`:""}`;
   trRender();
 }
@@ -88,34 +89,41 @@ function lineupStrength(ids,slots,val,pos,used=new Set()){
   return total;
 }
 const pairs=a=>{const r=[];for(let i=0;i<a.length;i++){r.push([a[i]]);for(let j=i+1;j<a.length;j++)r.push([a[i],a[j]])}return r};
-function generateTrades(i,scope){
+// goal "now" (dynasty leagues): trades stay fair by dynasty value, so a rebuilding team would take them, but your gain is
+// your starting lineup this season, by the redraft values chosen above (seasonFmt). The other team's lineup may get
+// weaker this season: a seller expects that.
+const seasonFmt=fmt=>({...fmt,dyn:false});
+function generateTrades(i,scope,goal="overall"){
   const {sl}=TR,lg=sl.leagues[i],fmt=leagueFormat(lg),slots=(lg.roster_positions||[]).filter(s=>!NON.has(s)&&s!=="K"&&s!=="DEF");
-  const active=activeIds;
-  const val={},pos={};
-  for(const r of sl.rosters[i])for(const id of r.players||[]){const p=sl.players[id];if(!p)continue;pos[id]=p.p;val[id]=tradeValue(p,fmt,id)??0}
-  const me=sl.mineAll[i],mine=active(me),base=lineupStrength(mine,slots,val,pos);
+  const active=activeIds,now=goal==="now"&&fmt.dyn;
+  const val={},pos={},sv={};
+  for(const r of sl.rosters[i])for(const id of r.players||[]){const p=sl.players[id];if(!p)continue;pos[id]=p.p;val[id]=tradeValue(p,fmt,id)??0;if(now)sv[id]=tradeValue(p,seasonFmt(fmt),id)??0}
+  const lv=now?sv:val; // what the lineups are measured by
+  const me=sl.mineAll[i],mine=active(me),base=lineupStrength(mine,slots,lv,pos);
   // Only players with value can move; cap each side at its 18 most valuable to keep the search quick
-  const top=ids=>ids.filter(id=>val[id]>0).sort((a,b)=>val[b]-val[a]).slice(0,18);
+  // (win now: by dynasty and this-season value together, so older veterans worth little in dynasty are still considered)
+  const rk=now?id=>val[id]+sv[id]:id=>val[id];
+  const top=ids=>ids.filter(id=>rk(id)>0).sort((a,b)=>rk(b)-rk(a)).slice(0,18);
   const giveSets=pairs(top(mine)),sum=a=>a.reduce((t,id)=>t+val[id],0);
   const teams=sl.rosters[i].filter(r=>r.owner_id!==sl.userId&&(scope==="all"||String(r.roster_id)===$("tr_team").value));
   const ideas=[];
   for(const t of teams){
-    const theirs=active(t),theirBase=lineupStrength(theirs,slots,val,pos),getSets=pairs(top(theirs));
+    const theirs=active(t),theirBase=lineupStrength(theirs,slots,lv,pos),getSets=pairs(top(theirs));
     for(const give of giveSets){const gv=sum(give),gs=new Set(give),myRest=mine.filter(id=>!gs.has(id));
       for(const get of getSets){const rv=sum(get);
         // Fair to them by Boone's chart: they may lose at most a small margin
         const tol=Math.max(3,Math.round(0.08*Math.max(gv,rv)));if(rv-gv>tol)continue;
-        const myGain=lineupStrength(myRest.concat(get),slots,val,pos)-base;if(myGain<2)continue;
-        // Their starting lineup must not get meaningfully worse, or they won't accept
-        const ts=new Set(get),theirGain=lineupStrength(theirs.filter(id=>!ts.has(id)).concat(give),slots,val,pos)-theirBase;
-        if(theirGain<-Math.max(2,Math.round(0.02*theirBase)))continue;
+        const myGain=lineupStrength(myRest.concat(get),slots,lv,pos)-base;if(myGain<2)continue;
+        // Their starting lineup must not get meaningfully worse, or they won't accept (win now: a seller expects it to)
+        const ts=new Set(get),theirGain=lineupStrength(theirs.filter(id=>!ts.has(id)).concat(give),slots,lv,pos)-theirBase;
+        if(!now&&theirGain<-Math.max(2,Math.round(0.02*theirBase)))continue;
         const score=myGain+0.5*theirGain-0.3*Math.max(0,gv-rv)-(give.length+get.length-2);
         ideas.push({team:t,give,get,gv,rv,myGain,theirGain,score});
       }
     }
   }
-  // Win-win first (their lineup holds or improves), then by score
-  ideas.sort((a,b)=>(a.theirGain<0)-(b.theirGain<0)||b.score-a.score);
+  // Win-win first (their lineup holds or improves), then by score; win now: by score alone
+  ideas.sort((a,b)=>(now?0:(a.theirGain<0)-(b.theirGain<0))||b.score-a.score);
   // Variety: at most 2 ideas per team, per player you'd receive and per player you'd give; skip "same trade plus a throw-in"
   const seenGet={},seenGive={},seenTeam={},picked=[],has=(a,b)=>b.every(id=>a.includes(id));
   for(const x of ideas){if(picked.length>=6)break;
@@ -126,22 +134,33 @@ function generateTrades(i,scope){
     x.get.forEach(id=>seenGet[id]=(seenGet[id]||0)+1);x.give.forEach(id=>seenGive[id]=(seenGive[id]||0)+1);picked.push(x)}
   return{picked,base,checked:ideas.length};
 }
-function trGenerate(){
+const goalNow=fmt=>fmt.dyn&&$("tr_goal").value==="now";
+async function trGenerate(){
   if(!TR)return;
-  const i=+$("tr_league").value,scope=$("tr_scope").value,{sl}=TR,out=$("tr_ideas");store.set("tr_scope",scope);
-  const names=Object.fromEntries((TR.users[sl.leagues[i].league_id]||[]).map(u=>[u.user_id,u.metadata?.team_name||u.display_name||"Team"]));
-  const fmt=leagueFormat(sl.leagues[i]),nm=id=>{const p=sl.players[id];return`${esc(p.n||`${p.f} ${p.l}`)} <span class="r">${esc(p.p)} ${esc(p.t||"FA")}</span> <b class="tv">${tradeValue(p,fmt,id)??0}</b>`};
-  const {picked,base}=generateTrades(i,scope);
-  if(!picked.length){out.innerHTML=`<div class="idea"><span class="ok">No trades found that improve your starting lineup without weakening theirs${scope==="one"?" with this team. Try All teams":""}.</span></div>`;return}
+  const i=+$("tr_league").value,scope=$("tr_scope").value,{sl}=TR,out=$("tr_ideas"),lg=sl.leagues[i];store.set("tr_scope",scope);
+  const names=Object.fromEntries((TR.users[lg.league_id]||[]).map(u=>[u.user_id,u.metadata?.team_name||u.display_name||"Team"]));
+  const fmt=leagueFormat(lg),now=goalNow(fmt);
+  // Win now needs this season's values too: the redraft source chosen above, in this league's format
+  if(now){out.innerHTML='<div class="ok">Loading this season\'s values…</div>';const errs=await ensureValues([{...lg,settings:{...(lg.settings||{}),type:0}}]);
+    if(errs.length&&tvSrc()!=="avg")throw new Error(errs[0])}
+  const sname=tvSrc()==="avg"?"the Justin Boone + FantasyCalc average":tvName();
+  const nm=id=>{const p=sl.players[id],s=now?tradeValue(p,seasonFmt(fmt),id):null;return`${esc(p.n||`${p.f} ${p.l}`)} <span class="r">${esc(p.p)} ${esc(p.t||"FA")}</span> <b class="tv">${tradeValue(p,fmt,id)??0}</b>${now?` <span class="r">now ${s??0}</span>`:""}`};
+  const {picked,base}=generateTrades(i,scope,now?"now":"overall");
+  if(!picked.length){out.innerHTML=`<div class="idea"><span class="ok">No trades found that improve your starting lineup${now?" this season while staying fair by dynasty value":" without weakening theirs"}${scope==="one"?" with this team. Try All teams":""}.</span></div>`;return}
   TR.ideas=picked;
-  out.innerHTML=`<div class="ok" style="margin-top:10px">Your starting lineup is worth ${base} by ${tvSrc()==="avg"&&!fmt.dyn?"the average":valName(fmt)} values. Ideas that raise it without weakening the other team's starters, fair by those values:</div>`+
+  out.innerHTML=(now?`<div class="ok" style="margin-top:10px">Win now: your starting lineup is worth ${base} this season by ${esc(sname)} values. Ideas that raise it, fair by ${esc(DYN_SRC[dynSrc()])} dynasty values (the bold number; "now" is this season's value):</div>`
+      :`<div class="ok" style="margin-top:10px">Your starting lineup is worth ${base} by ${tvSrc()==="avg"&&!fmt.dyn?"the average":valName(fmt)} values. Ideas that raise it without weakening the other team's starters, fair by those values:</div>`)+
     picked.map((x,k)=>{const who=names[x.team.owner_id]||"Team "+x.team.roster_id,drop=x.give.length>x.get.length?" They'd need to free a roster spot.":x.get.length>x.give.length?" You'd need to free a roster spot.":"";
-      return`<div class="idea"><h3>${scope==="all"?esc(who):"Trade idea "+(k+1)}<span>Lineup +${x.myGain}</span></h3>`+
+      const theirs=now?(x.theirGain<0?`Their lineup −${-x.theirGain} this season`:x.theirGain>0?`Their lineup +${x.theirGain} this season too`:"Their lineup unchanged this season")
+        :x.theirGain>0?`Helps their lineup too (+${x.theirGain})`:x.theirGain<0?`Their lineup −${-x.theirGain} (slight)`:"Their lineup unchanged";
+      return`<div class="idea"><h3>${scope==="all"?esc(who):"Trade idea "+(k+1)}<span>Lineup +${x.myGain}${now?" this season":""}</span></h3>`+
         `<div class="side"><span class="lbl">You give</span>${x.give.map(nm).join(", ")}</div><div class="side"><span class="lbl">You get</span>${x.get.map(nm).join(", ")}</div>`+
-        `<div class="meta"><span class="${x.theirGain>0?"up":x.theirGain<0?"down":""}">${x.theirGain>0?`Helps their lineup too (+${x.theirGain})`:x.theirGain<0?`Their lineup −${-x.theirGain} (slight)`:"Their lineup unchanged"}</span> · value ${x.gv} → ${x.rv}.${drop}</div>`+
+        `<div class="meta"><span class="${x.theirGain>0?"up":x.theirGain<0?"down":""}">${theirs}</span> · ${now?"dynasty ":""}value ${x.gv} → ${x.rv}.${drop}</div>`+
         `<button data-idea="${k}">Open in comparer</button></div>`}).join("");
 }
-$("tr_gen").onclick=()=>{try{trGenerate()}catch(e){$("tr_ideas").innerHTML=`<div class="err">${esc(e.message)}</div>`}};
+$("tr_gen").onclick=()=>trGenerate().catch(e=>{$("tr_ideas").innerHTML=`<div class="err">${esc(e.message)}</div>`});
+$("tr_goal").value=store.get("tr_goal")==="now"?"now":"overall";
+$("tr_goal").onchange=()=>{store.set("tr_goal",$("tr_goal").value);$("tr_ideas").innerHTML=""};
 $("tr_scope").value=store.get("tr_scope")==="all"?"all":"one";
 $("tr_ideas").addEventListener("click",e=>{const k=e.target.dataset.idea;if(k==null)return;const x=TR.ideas[+k];
   $("tr_team").value=String(x.team.roster_id);TR.give=new Set(x.give);TR.get=new Set(x.get);trRender();$("tr_sum").scrollIntoView({behavior:"smooth",block:"end"})});
