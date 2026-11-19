@@ -29,7 +29,10 @@ function leagueFormat(lg){
   return{sc:rec>=0.75?"PPR":"HALF",qb:rp.includes("SUPER_FLEX")||rp.filter(x=>x==="QB").length>1?"2QB":"1QB",ppr:rec>=0.75?1:rec>=0.25?0.5:0,teams:+lg.total_rosters||12,dyn:isDynasty(lg)};
 }
 // Sleeper's league type: 0 redraft, 1 keeper, 2 dynasty. Dynasty leagues use dynasty values (Dynasty Daddy or KeepTradeCut).
-const isDynasty=lg=>+(lg&&lg.settings||{}).type===2;
+// Many dynasty leagues are set up in Sleeper as keeper (or even redraft) leagues, so each league can be marked either
+// way by hand on the Trades tab (dyn_force: league id -> true/false), which wins over Sleeper's setting.
+const dynForced=()=>{try{return JSON.parse(store.get("dyn_force")||"{}")||{}}catch(e){return{}}};
+const isDynasty=lg=>{if(!lg)return false;const f=dynForced()[lg.league_id];return typeof f==="boolean"?f:+(lg.settings||{}).type===2};
 const fmtLabel=f=>`${f.sc==="PPR"?"PPR":"Half-PPR"} · ${f.qb==="2QB"?"Superflex":"1QB"}`;
 const TV_SRC={boone:"Justin Boone's",fc:"FantasyCalc",avg:"Justin Boone + FantasyCalc average"};
 const tvSrc=()=>TV_SRC[$("tr_vsrc").value]?$("tr_vsrc").value:"boone";
