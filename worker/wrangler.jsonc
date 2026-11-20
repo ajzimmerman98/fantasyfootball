@@ -13,4 +13,15 @@
   // Every 3 hours: save new versions of Boone's rankings and trade value charts
   "triggers": { "crons": ["17 * * * *"] }
   // Secret (set in the dashboard, not here): ACCESS_CODE
+  // The test copy: Worker boone-api-staging with its own database, deployed from the `staging` branch with
+  // `npx wrangler deploy --env staging` (see README.md, "Test and live").
+  "env": {
+    "staging": {
+      "name": "boone-api-staging",
+      "d1_databases": [
+        { "binding": "DB", "database_name": "boone-db-staging", "database_id": "STAGING_DATABASE_ID" }
+      ],
+      "triggers": { "crons": ["17 * * * *"] }
+    }
+  }
 }

@@ -1,0 +1,42 @@
+# Publishes the site with both copies of the app:
+#   https://ajzimmerman98.github.io/fantasyfootball/          live, from the main branch
+#   https://ajzimmerman98.github.io/fantasyfootball/staging/  test, from the staging branch
+# Needs Settings → Pages → Build and deployment → Source: "GitHub Actions".
+name: Pages
+on:
+  push:
+    branches: [main, staging]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main, path: live }
+      - uses: actions/checkout@v4
+        with: { ref: staging, path: test }
+      - name: Assemble the site
+        run: |
+          mkdir -p _site/staging
+          # Only what the browser needs: the page, styles, scripts, icons, manifest and service worker
+          for d in live:_site test:_site/staging; do
+            src=${d%%:*}; dst=${d#*:}
+            cp -r "$src/index.html" "$src/manifest.webmanifest" "$src/sw.js" "$src/css" "$src/js" "$src/icons" "$dst/"
+          done
+          # The installed test app gets its own name, so it isn't confused with the live one on a home screen
+          sed -i 's/"name": "Boone Lineups"/"name": "Boone Lineups (test)"/; s/"short_name": "Boone"/"short_name": "Boone test"/' _site/staging/manifest.webmanifest
+          touch _site/.nojekyll
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: _site }
+      - id: deploy
+        uses: actions/deploy-pages@v4

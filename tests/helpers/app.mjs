@@ -6,6 +6,7 @@ import * as world from "./world.mjs";
 
 const { chromium } = createRequire(import.meta.url)("playwright");
 export const WORKER = "https://boone-api.ajzimmerman98.workers.dev";
+export const STAGING_WORKER = "https://boone-api-staging.ajzimmerman98.workers.dev";
 export const APP = "file://" + path.join(world.ROOT, "index.html");
 
 globalThis.fetch = world.workerFetch; // the Worker module uses the global fetch
@@ -21,19 +22,24 @@ export async function closeBrowser() { if (browser) await browser.close(); brows
 
 // opts: env (Worker bindings), width, query (e.g. "?owner"), connect (enter the access code),
 // remembered (the username is already saved on this device, as on a return visit), sleeperCalls (array to record Sleeper paths)
-export async function openApp({ env = newEnv(), width = 375, query = "", connect = false, remembered = false, sleeperCalls = null } = {}) {
+// app: the page to open (default: the live copy, index.html at the repository root). workerCalls: records Worker URLs.
+export async function openApp({ env = newEnv(), width = 375, query = "", connect = false, remembered = false, sleeperCalls = null, app = APP, workerCalls = null } = {}) {
   const b = await launch();
   const ctx = await b.newContext({ viewport: { width, height: 900 } });
   if (remembered) await ctx.addInitScript(() => { if (!localStorage.getItem("user")) localStorage.setItem("user", "aj"); });
   const page = await ctx.newPage();
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  await page.route(WORKER + "/**", async (r) => {
+  const workerRoute = async (r) => {
     const q = r.request(), u = new URL(q.url());
+    if (workerCalls) workerCalls.push(u.origin + u.pathname);
     if (u.pathname === "/trade-values") return r.fulfill({ body: world.fixtures.tradeValues, contentType: "application/json", headers: { "access-control-allow-origin": "*" } });
     const res = await worker.fetch(new Request(q.url(), { method: q.method(), headers: q.headers(), body: ["GET", "HEAD"].includes(q.method()) ? undefined : q.postData() }), env);
     r.fulfill({ status: res.status, body: await res.text(), headers: Object.fromEntries(res.headers) });
-  });
+  };
+  // The live Worker, and the test copy's (both answered by the same in-process Worker)
+  await page.route(WORKER + "/**", workerRoute);
+  await page.route(STAGING_WORKER + "/**", workerRoute);
   await page.route("https://api.sleeper.app/**", (r) => {
     const u = new URL(r.request().url());
     if (sleeperCalls) sleeperCalls.push(u.pathname);
@@ -45,7 +51,7 @@ export async function openApp({ env = newEnv(), width = 375, query = "", connect
   await page.route("https://api.open-meteo.com/**", (r) => r.fulfill({ json: world.forecast(r.request().url()) }));
   await page.route("https://geocoding-api.open-meteo.com/**", (r) => r.fulfill({ json: { results: [] } }));
   await page.route("https://partners.fantasypros.com/**", (r) => r.abort()); // the app goes through the Worker
-  await page.goto(APP + query);
+  await page.goto(app + query);
   if (!remembered) await page.fill("#user", "aj");
   if (connect) {
     await page.click("#sync summary");

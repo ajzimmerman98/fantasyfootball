@@ -2,6 +2,8 @@
 // Loaded as a plain script by index.html, in order; files share one global scope.
 // ---------- Install as an app ----------
 // Service worker (offline start), plus a one-time tip: iPhone/iPad = Share → Add to Home Screen; Android/desktop Chrome = Install button
+// The test copy says so, so it's never mistaken for the live app
+if(STAGING){document.title="TEST · "+document.title;document.body.insertAdjacentHTML("afterbegin",'<div id="stage" class="stage">Test version: changes are tried here before they go live. Its data is separate from the live app.</div>')}
 if("serviceWorker" in navigator&&/^https?:$/.test(location.protocol))navigator.serviceWorker.register("sw.js").catch(()=>{});
 {const standalone=matchMedia("(display-mode: standalone)").matches||navigator.standalone===true;
   const ios=/iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
