@@ -131,7 +131,8 @@ test("trades: Justin Boone week-over-week and FantasyCalc 30-day trends; trade i
   await page.selectOption("#tr_trend", "value");
   await page.selectOption("#tr_vsrc", "fc");
   await page.waitForFunction(() => /FantasyCalc values/.test(document.getElementById("tr_status").textContent), null, { timeout: 30000 });
-  assert.match(await text(page, "#tr_fmt"), /FantasyCalc values for this league/);
+  // The league's format line is redrawn just after the status
+  await page.waitForFunction(() => /FantasyCalc values for this league/.test(document.getElementById("tr_fmt").textContent), null, { timeout: 30000 });
   assert.deepEqual(errors, []);
 });
 
