@@ -10,7 +10,10 @@ const OUT=new Set(["Out","IR","PUP","Sus","NA","COV"]);
 const ALIAS={QB:"QB",RB:"RB",WR:"WR",TE:"TE",K:"K",FLEX:"FLEX",SUPERFLEX:"SUPERFLEX",SUPER_FLEX:"SUPERFLEX",DST:"DEF",DEF:"DEF","D/ST":"DEF"};
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const store={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
+// The test copy of the app lives at …/staging/ on the same site as the live one, so it would share the browser's
+// storage: its keys get their own prefix, and it talks to its own Worker (values.js).
+const STAGING=/\/staging\//.test(location.pathname),SP=STAGING?"stg_":"";
+const store={get(k){try{return localStorage.getItem(SP+k)}catch(e){return null}},set(k,v){try{localStorage.setItem(SP+k,v)}catch(e){}}};
 
 function norm(s){return s.toLowerCase().replace(/[.'’]/g,"").replace(/[^a-z0-9\s]/g," ").replace(/\b(jr|sr|ii|iii|iv)\b/g,"").split(/\s+/).filter(Boolean).join(" ")}
 function sim(a,b){const m=a.length,n=b.length;if(!m||!n)return 0;let p=Array.from({length:n+1},(_,j)=>j);for(let i=1;i<=m;i++){const c=[i];for(let j=1;j<=n;j++)c[j]=Math.min(p[j]+1,c[j-1]+1,p[j-1]+(a[i-1]===b[j-1]?0:1));p=c}return 1-p[n]/Math.max(m,n)}

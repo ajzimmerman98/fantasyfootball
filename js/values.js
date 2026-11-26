@@ -1,7 +1,8 @@
 // Trade values: Justin Boone's charts and FantasyCalc (via the Worker), league formats, trends.
 // Loaded as a plain script by index.html, in order; files share one global scope.
 // ---------- Trade values (via the Cloudflare Worker in worker/) ----------
-const API_BASE_DEFAULT="https://boone-api.ajzimmerman98.workers.dev"; // Cloudflare Worker (worker/). Can be overridden with ?api=<url>
+// Cloudflare Worker (worker/): the live one, or the test one for the test copy of the app. Can be overridden with ?api=<url>
+const API_BASE_DEFAULT=STAGING?"https://boone-api-staging.ajzimmerman98.workers.dev":"https://boone-api.ajzimmerman98.workers.dev";
 {const q=new URLSearchParams(location.search).get("api");if(q)store.set("api_url",q.replace(/\/+$/,""))}
 const apiBase=()=>store.get("api_url")||API_BASE_DEFAULT;
 let TV=null; // {data, idx:{QB:{normName:values}}}

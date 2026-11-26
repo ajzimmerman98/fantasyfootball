@@ -1,7 +1,10 @@
 // Boone Lineups service worker: lets the installed app open without a connection.
 // The app itself is always fetched fresh when online (network first), so updates show immediately;
 // the saved copy is only used offline. Data requests (Sleeper, FantasyPros, the Worker) aren't touched.
-const CACHE = "boone-shell-v3";
+// The live app (…/fantasyfootball/) and the test copy (…/fantasyfootball/staging/) share a site: each keeps its own
+// offline copy, and the live worker leaves the test copy's pages to the test copy's own worker.
+const STAGING = /\/staging\/$/.test(self.registration.scope), TAG = STAGING ? "-staging" : "";
+const CACHE = "boone-shell-v3" + TAG, NESTED = self.registration.scope + "staging/";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/apple-touch-icon.png",
   "./css/app.css", "./js/core.js", "./js/lineup.js", "./js/values.js", "./js/trades.js", "./js/sync.js", "./js/rankings.js", "./js/weather.js", "./js/freeagents.js", "./js/power.js", "./js/history.js", "./js/reminders.js", "./js/app.js"];
 
@@ -9,11 +12,13 @@ self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });
 self.addEventListener("activate", (e) => {
-  e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
+  // Old copies of this app only: the other copy's cache isn't touched
+  e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE && k.endsWith("-staging") === STAGING).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
 });
 self.addEventListener("fetch", (e) => {
   const req = e.request, url = new URL(req.url);
   if (req.method !== "GET" || url.origin !== self.location.origin) return; // only the app's own files
+  if (!STAGING && url.href.startsWith(NESTED)) return; // the test copy's files
   e.respondWith(
     fetch(req)
       .then((res) => {

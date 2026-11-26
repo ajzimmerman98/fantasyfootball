@@ -234,6 +234,30 @@ test("dynasty switch: a league can be marked dynasty (or not) by hand", async ()
   } finally { state.dynasty = []; }
 });
 
+test("test copy (…/staging/): its own Worker, its own storage, a banner; the live copy is untouched", async () => {
+  const fs = await import("node:fs"), os = await import("node:os"), path = await import("node:path");
+  const { STAGING_WORKER, WORKER } = await import("./helpers/app.mjs");
+  // The site as the Pages workflow builds it: the app's files under staging/
+  const site = fs.mkdtempSync(path.join(os.tmpdir(), "site-")), dir = path.join(site, "staging");
+  fs.mkdirSync(dir);
+  for (const f of ["index.html", "manifest.webmanifest", "sw.js", "css", "js", "icons"]) fs.cpSync(path.join(world.ROOT, f), path.join(dir, f), { recursive: true });
+  const calls = [];
+  const { page, errors } = await openApp({ app: "file://" + path.join(dir, "index.html"), workerCalls: calls });
+  assert.match(await text(page, "#stage"), /Test version/);
+  assert.match(await page.title(), /^TEST · /);
+  await build(page, "boone");
+  assert.ok(calls.length && calls.every((u) => u.startsWith(STAGING_WORKER)), "only the test Worker is called");
+  const keys = await page.evaluate(() => Object.keys(localStorage));
+  assert.ok(keys.includes("stg_user") && !keys.includes("user"), "its storage keys are separate: " + keys.join(","));
+  // The live copy shows no banner and uses the live Worker
+  const live = [], l = await openApp({ workerCalls: live });
+  assert.equal(await l.page.$("#stage"), null);
+  await build(l.page, "boone");
+  assert.ok(live.length && live.every((u) => u.startsWith(WORKER)), "the live copy uses the live Worker");
+  assert.deepEqual(errors, []);
+  fs.rmSync(site, { recursive: true, force: true });
+});
+
 test("power rankings: every option ranks both teams", async () => {
   const { page, errors } = await openApp();
   await page.click("#tb_power");
