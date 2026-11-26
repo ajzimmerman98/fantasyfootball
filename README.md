@@ -40,6 +40,6 @@ The test copy shows a "Test version" banner, keeps its own browser storage (keys
 
 ### One-time setup
 1. **GitHub Pages:** repository Settings → Pages → Build and deployment → Source: **GitHub Actions**. The Pages workflow (`.github/workflows/pages.yml`) then publishes `main` at the root and `staging` under `/staging/`.
-2. **Test database:** Cloudflare → Storage & databases → D1 → Create, named `boone-db-staging`. Put its Database ID in `worker/wrangler.jsonc` under `env.staging` (in place of `STAGING_DATABASE_ID`).
+2. **Test database:** Cloudflare → Storage & databases → D1 → Create, named `boone-db-staging`. Its Database ID is in `worker/wrangler.jsonc` under `env.staging` (done: `598448c1-e6cc-46eb-9939-ef56a1fde445`).
 3. **Test Worker:** Cloudflare → Workers & Pages → Create → Import a repository: this repository, Worker name `boone-api-staging`, production branch `staging`, root directory `/worker`, deploy command `npx wrangler deploy --env staging`.
 4. **Test Worker secrets** (optional, same as live): `ACCESS_CODE`, and `ESPN_S2` / `ESPN_SWID` to try ESPN leagues.

@@ -19,7 +19,7 @@
     "staging": {
       "name": "boone-api-staging",
       "d1_databases": [
-        { "binding": "DB", "database_name": "boone-db-staging", "database_id": "STAGING_DATABASE_ID" }
+        { "binding": "DB", "database_name": "boone-db-staging", "database_id": "598448c1-e6cc-46eb-9939-ef56a1fde445" }
       ],
       "triggers": { "crons": ["17 * * * *"] }
     }
