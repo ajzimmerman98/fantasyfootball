@@ -2,6 +2,8 @@
 #   https://ajzimmerman98.github.io/fantasyfootball/          live, from the main branch
 #   https://ajzimmerman98.github.io/fantasyfootball/staging/  test, from the staging branch
 # Needs Settings → Pages → Build and deployment → Source: "GitHub Actions".
+# GitHub only lets the main branch publish Pages, so a push to staging asks this workflow to run again on main,
+# which builds the site from both branches.
 name: Pages
 on:
   push:
@@ -11,11 +13,20 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  actions: write
 concurrency:
   group: pages
   cancel-in-progress: false
 jobs:
+  relay:
+    if: github.ref == 'refs/heads/staging'
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh workflow run pages.yml --repo "$GITHUB_REPOSITORY" --ref main
+        env:
+          GH_TOKEN: ${{ github.token }}
   deploy:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -35,7 +46,6 @@ jobs:
           done
           # The installed test app gets its own name, so it isn't confused with the live one on a home screen
           sed -i 's/"name": "Boone Lineups"/"name": "Boone Lineups (test)"/; s/"short_name": "Boone"/"short_name": "Boone test"/' _site/staging/manifest.webmanifest
-          touch _site/.nojekyll
       - uses: actions/upload-pages-artifact@v3
         with: { path: _site }
       - id: deploy
